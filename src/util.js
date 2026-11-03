@@ -1,0 +1,423 @@
+import * as THREE from 'three';
+
+export const FONT = {
+  mono: '"IBM Plex Mono", "SF Mono", Menlo, monospace',
+  serif: '"Instrument Serif", "Songti SC", "STSong", Georgia, serif',
+  hand: '"Caveat", "Long Cang", "Songti SC", cursive',
+  type: '"Special Elite", "Courier New", monospace',
+};
+
+export function rng(seed) {
+  let s = seed >>> 0 || 1;
+  return () => {
+    s ^= s << 13; s >>>= 0;
+    s ^= s >> 17;
+    s ^= s << 5; s >>>= 0;
+    return s / 4294967296;
+  };
+}
+
+export function canvas(w, h) {
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  return [c, c.getContext('2d')];
+}
+
+export function canvasTexture(c, { repeat, srgb = true } = {}) {
+  const t = new THREE.CanvasTexture(c);
+  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  if (repeat) {
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(repeat[0], repeat[1]);
+  }
+  return t;
+}
+
+/* ---------- placeholder photos ---------- */
+
+const PALETTES = [
+  ['#f2c79a', '#d9785a', '#5b3b4f', '#20182a'],
+  ['#c9dbe6', '#8fb0c4', '#3d5566', '#141c24'],
+  ['#f5e1a8', '#d8a95b', '#7a5a2f', '#2c2012'],
+  ['#e6c2c9', '#b07a91', '#4c3550', '#191320'],
+  ['#d7e3c5', '#9db584', '#4d6643', '#1b2617'],
+  ['#fbd9b0', '#f08a4b', '#7d3a2a', '#21110d'],
+  ['#dfe6ee', '#a9b8c9', '#5e6b80', '#22262e'],
+];
+
+const photoCache = new Map();
+
+/** A deterministic, photo-like placeholder (3:4 portrait). */
+export function placeholderPhoto(rollIndex, frameIndex, title = '') {
+  const key = `${rollIndex}:${frameIndex}`;
+  if (photoCache.has(key)) return photoCache.get(key);
+  const W = 384, H = 512;
+  const [c, g] = canvas(W, H);
+  const r = rng(rollIndex * 997 + frameIndex * 131 + 7);
+  const pal = PALETTES[Math.floor(r() * PALETTES.length)];
+  const kind = (frameIndex + rollIndex * 2) % 5;
+  const horizon = H * (0.48 + r() * 0.2);
+
+  const sky = g.createLinearGradient(0, 0, 0, horizon);
+  sky.addColorStop(0, pal[1]);
+  sky.addColorStop(1, pal[0]);
+  g.fillStyle = sky;
+  g.fillRect(0, 0, W, H);
+
+  // sun / moon
+  g.fillStyle = 'rgba(255,245,225,0.85)';
+  g.beginPath();
+  g.arc(W * (0.2 + r() * 0.6), horizon * (0.3 + r() * 0.4), 18 + r() * 34, 0, Math.PI * 2);
+  g.fill();
+
+  if (kind === 0) {
+    // mountains
+    for (let layer = 0; layer < 3; layer++) {
+      g.fillStyle = layer === 0 ? pal[1] : layer === 1 ? pal[2] : pal[3];
+      g.globalAlpha = 0.55 + layer * 0.2;
+      g.beginPath();
+      g.moveTo(0, H);
+      let y = horizon - 40 + layer * 30;
+      for (let x = 0; x <= W; x += 24) {
+        y += (r() - 0.5) * 60;
+        g.lineTo(x, Math.min(horizon + layer * 40, y));
+      }
+      g.lineTo(W, H);
+      g.fill();
+    }
+    g.globalAlpha = 1;
+  } else if (kind === 1) {
+    // city blocks with windows
+    g.fillStyle = pal[3];
+    g.fillRect(0, horizon, W, H - horizon);
+    for (let x = -10; x < W; x += 30 + r() * 40) {
+      const bw = 26 + r() * 46, bh = 80 + r() * 230;
+      g.fillStyle = r() > 0.5 ? pal[2] : pal[3];
+      g.fillRect(x, horizon + 30 - bh, bw, bh + H);
+      g.fillStyle = 'rgba(255,220,150,0.75)';
+      for (let wy = horizon + 40 - bh; wy < H; wy += 14)
+        for (let wx = x + 4; wx < x + bw - 6; wx += 10) if (r() > 0.62) g.fillRect(wx, wy, 4, 6);
+    }
+  } else if (kind === 2) {
+    // portrait silhouette against a window
+    g.fillStyle = pal[2];
+    g.fillRect(0, horizon, W, H);
+    g.fillStyle = pal[3];
+    g.fillRect(0, 0, 34, H);
+    g.fillRect(W - 34, 0, 34, H);
+    const cx = W * (0.4 + r() * 0.2);
+    g.beginPath();
+    g.ellipse(cx, H * 0.48, 46, 58, 0, 0, Math.PI * 2);
+    g.fill();
+    g.beginPath();
+    g.moveTo(cx - 120, H);
+    g.quadraticCurveTo(cx - 100, H * 0.58, cx, H * 0.57);
+    g.quadraticCurveTo(cx + 100, H * 0.58, cx + 120, H);
+    g.fill();
+  } else if (kind === 3) {
+    // sea and shoreline
+    const sea = g.createLinearGradient(0, horizon, 0, H);
+    sea.addColorStop(0, pal[2]);
+    sea.addColorStop(1, pal[3]);
+    g.fillStyle = sea;
+    g.fillRect(0, horizon, W, H);
+    g.strokeStyle = 'rgba(255,255,255,0.25)';
+    for (let y = horizon + 10; y < H; y += 9 + r() * 12) {
+      g.beginPath();
+      g.moveTo(r() * W * 0.3, y);
+      g.lineTo(W * (0.6 + r() * 0.4), y + (r() - 0.5) * 3);
+      g.stroke();
+    }
+  } else {
+    // field with a tree and a road
+    g.fillStyle = pal[0];
+    g.fillRect(0, horizon, W, H);
+    const field = g.createLinearGradient(0, horizon, 0, H);
+    field.addColorStop(0, pal[1]);
+    field.addColorStop(1, pal[2]);
+    g.fillStyle = field;
+    g.fillRect(0, horizon, W, H);
+    g.fillStyle = pal[3];
+    const tx = W * (0.2 + r() * 0.6);
+    g.fillRect(tx - 4, horizon - 70, 8, 80);
+    g.beginPath();
+    g.arc(tx, horizon - 80, 40, 0, Math.PI * 2);
+    g.fill();
+    g.fillStyle = 'rgba(0,0,0,0.18)';
+    g.beginPath();
+    g.moveTo(W * 0.45, horizon);
+    g.lineTo(W * 0.1, H);
+    g.lineTo(W * 0.9, H);
+    g.lineTo(W * 0.55, horizon);
+    g.fill();
+  }
+
+  // film-ish softness + light leak
+  const leak = g.createRadialGradient(W * r(), 0, 10, W * 0.5, 0, H * 0.9);
+  leak.addColorStop(0, 'rgba(255,140,60,0.28)');
+  leak.addColorStop(1, 'rgba(255,140,60,0)');
+  g.fillStyle = leak;
+  g.fillRect(0, 0, W, H);
+  const img = g.getImageData(0, 0, W, H);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const n = (r() - 0.5) * 22;
+    img.data[i] += n; img.data[i + 1] += n; img.data[i + 2] += n;
+  }
+  g.putImageData(img, 0, 0);
+
+  g.font = `500 13px ${FONT.mono}`;
+  g.fillStyle = 'rgba(255,255,255,0.55)';
+  g.fillText(`PLACEHOLDER · R${rollIndex + 1}-${String(frameIndex + 1).padStart(2, '0')}`, 14, H - 16);
+  if (title) {
+    g.font = `italic 20px ${FONT.serif}`;
+    g.fillText(title, 14, H - 36);
+  }
+  photoCache.set(key, c);
+  return c;
+}
+
+const loadedImages = new Map();
+
+/** Photo source for a frame: real image if configured, otherwise a placeholder canvas. */
+export function photoSource(rollIndex, frameIndex, frame) {
+  if (!frame?.photo) return placeholderPhoto(rollIndex, frameIndex, frame?.title);
+  if (!loadedImages.has(frame.photo)) {
+    const img = new Image();
+    img.src = frame.photo;
+    loadedImages.set(frame.photo, img);
+  }
+  return loadedImages.get(frame.photo);
+}
+
+const texCache = new Map();
+export function photoTexture(rollIndex, frameIndex, frame) {
+  const key = `${rollIndex}:${frameIndex}`;
+  if (texCache.has(key)) return texCache.get(key);
+  const src = photoSource(rollIndex, frameIndex, frame);
+  const t = src instanceof HTMLCanvasElement ? new THREE.CanvasTexture(src) : new THREE.Texture(src);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  if (src instanceof HTMLImageElement) {
+    if (src.complete) t.needsUpdate = true;
+    else src.addEventListener('load', () => (t.needsUpdate = true), { once: true });
+  }
+  texCache.set(key, t);
+  return t;
+}
+
+export function photoURL(rollIndex, frameIndex, frame) {
+  if (frame?.photo) return frame.photo;
+  return placeholderPhoto(rollIndex, frameIndex, frame?.title).toDataURL('image/jpeg', 0.9);
+}
+
+/* ---------- the one photo shader: negative, positive, print developing ---------- */
+
+const PHOTO_VERT = /* glsl */ `
+varying vec2 vUv;
+uniform vec4 uCrop;
+void main() {
+  vUv = uCrop.xy + uv * uCrop.zw;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}`;
+
+const PHOTO_FRAG = /* glsl */ `
+uniform sampler2D uMap;
+uniform float uNeg;     // 1 = orange-mask negative, 0 = positive
+uniform float uDev;     // print developing: 0 = blank paper, 1 = full image
+uniform float uMono;    // 1 = warm-toned black & white
+uniform float uBright;
+uniform float uTime;
+uniform vec3 uPaper;
+uniform float uFlash;   // white flash for the slide viewer
+varying vec2 vUv;
+
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float noise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y);
+}
+
+void main() {
+  vec3 c = texture2D(uMap, vUv).rgb;
+  vec3 g = pow(max(c, 0.0), vec3(1.0 / 2.2));
+  float l = dot(g, vec3(0.299, 0.587, 0.114));
+
+  vec3 toned = vec3(l) * vec3(1.04, 0.97, 0.86);
+  toned = smoothstep(0.04, 0.98, toned);
+  vec3 img = mix(g, toned, uMono);
+
+  vec3 neg = (1.0 - g) * vec3(0.98, 0.58, 0.33) * 0.82 + vec3(0.16, 0.05, 0.0);
+  img = mix(img, neg, uNeg);
+
+  float n = noise(vUv * 7.0 + uTime * 0.07) * 0.45 + noise(vUv * 31.0) * 0.12;
+  float k = clamp((uDev * 1.7 - n) * (0.9 + (1.0 - l) * 0.9), 0.0, 1.0);
+  vec3 col = mix(pow(uPaper, vec3(1.0 / 2.2)), img, k);
+  col = mix(col, vec3(1.0, 0.97, 0.9), uFlash);
+
+  gl_FragColor = vec4(pow(col, vec3(2.2)) * uBright, 1.0);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}`;
+
+export function photoMaterial(map, opts = {}) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uMap: { value: map },
+      uNeg: { value: opts.neg ?? 0 },
+      uDev: { value: opts.dev ?? 1 },
+      uMono: { value: opts.mono ?? 0 },
+      uBright: { value: opts.bright ?? 1 },
+      uTime: { value: 0 },
+      uPaper: { value: new THREE.Color(opts.paper ?? '#f3eee2') },
+      uFlash: { value: 0 },
+      uCrop: { value: new THREE.Vector4(0, 0, 1, 1) },
+    },
+    vertexShader: PHOTO_VERT,
+    fragmentShader: PHOTO_FRAG,
+    side: opts.side ?? THREE.FrontSide,
+    toneMapped: false,
+  });
+}
+
+/* ---------- static textures ---------- */
+
+export function velvetTexture() {
+  const S = 512;
+  const [c, g] = canvas(S, S);
+  g.fillStyle = '#7a1b12';
+  g.fillRect(0, 0, S, S);
+  const img = g.getImageData(0, 0, S, S);
+  const r = rng(42);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const n = (r() - 0.5) * 26;
+    img.data[i] += n;
+    img.data[i + 1] += n * 0.35;
+    img.data[i + 2] += n * 0.3;
+  }
+  g.putImageData(img, 0, 0);
+  g.globalAlpha = 0.05;
+  for (let i = 0; i < 900; i++) {
+    g.strokeStyle = r() > 0.5 ? '#000' : '#c04030';
+    g.beginPath();
+    const x = r() * S, y = r() * S;
+    g.moveTo(x, y);
+    g.lineTo(x + (r() - 0.5) * 30, y + (r() - 0.5) * 30);
+    g.stroke();
+  }
+  return canvasTexture(c, { repeat: [10, 10] });
+}
+
+export function corkTexture() {
+  const S = 512;
+  const [c, g] = canvas(S, S);
+  g.fillStyle = '#8a5a34';
+  g.fillRect(0, 0, S, S);
+  const r = rng(9);
+  for (let i = 0; i < 9000; i++) {
+    const v = r();
+    g.fillStyle = v > 0.6 ? 'rgba(60,32,14,0.5)' : v > 0.3 ? 'rgba(176,122,74,0.45)' : 'rgba(40,20,8,0.35)';
+    g.beginPath();
+    g.arc(r() * S, r() * S, 0.6 + r() * 2.2, 0, Math.PI * 2);
+    g.fill();
+  }
+  return canvasTexture(c, { repeat: [3, 2] });
+}
+
+/** Handwritten / typed text on a paper card. */
+export function cardTexture({ w = 512, h = 320, bg = '#efe6d2', lines = [], border = false }) {
+  const [c, g] = canvas(w, h);
+  g.fillStyle = bg;
+  g.fillRect(0, 0, w, h);
+  const r = rng(w * 3 + h);
+  const img = g.getImageData(0, 0, w, h);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const n = (r() - 0.5) * 10;
+    img.data[i] += n; img.data[i + 1] += n; img.data[i + 2] += n;
+  }
+  g.putImageData(img, 0, 0);
+  if (border) {
+    g.strokeStyle = 'rgba(0,0,0,0.12)';
+    g.lineWidth = 2;
+    g.strokeRect(6, 6, w - 12, h - 12);
+  }
+  for (const l of lines) {
+    g.save();
+    g.fillStyle = l.color ?? '#3a2a20';
+    g.font = l.font;
+    g.textAlign = l.align ?? 'left';
+    g.translate(l.x, l.y);
+    if (l.rot) g.rotate(l.rot);
+    if (l.wrap) wrapText(g, l.text, 0, 0, l.wrap, l.lh ?? 40);
+    else g.fillText(l.text, 0, 0);
+    g.restore();
+  }
+  return canvasTexture(c);
+}
+
+export function wrapText(g, text, x, y, maxW, lh) {
+  let line = '';
+  let yy = y;
+  for (const word of text.split(' ')) {
+    const test = line ? `${line} ${word}` : word;
+    if (g.measureText(test).width > maxW && line) {
+      g.fillText(line, x, yy);
+      line = word;
+      yy += lh;
+    } else line = test;
+  }
+  if (line) g.fillText(line, x, yy);
+}
+
+/** A wobbly, hand-drawn closed loop. progress 0..1 draws part of it. */
+export function handLoop(g, cx, cy, rx, ry, progress, seed, { width = 5, color = '#d0261c' } = {}) {
+  const r = rng(seed);
+  const wob = Array.from({ length: 6 }, () => (r() - 0.5) * 0.12);
+  const start = r() * Math.PI * 2;
+  const turns = 1.12;
+  const steps = 90;
+  g.save();
+  g.strokeStyle = color;
+  g.lineWidth = width;
+  g.lineCap = 'round';
+  g.lineJoin = 'round';
+  g.beginPath();
+  const n = Math.floor(steps * progress);
+  for (let i = 0; i <= n; i++) {
+    const t = i / steps;
+    const a = start + t * Math.PI * 2 * turns;
+    const k = 1 + wob[0] * Math.sin(a * 2 + wob[1] * 9) + wob[2] * Math.sin(a * 3) + t * 0.06;
+    const x = cx + Math.cos(a) * rx * k;
+    const y = cy + Math.sin(a) * ry * k;
+    if (i === 0) g.moveTo(x, y);
+    else g.lineTo(x, y);
+  }
+  g.stroke();
+  g.restore();
+}
+
+export function handHeart(g, cx, cy, s, progress, { width = 4, color = '#d0261c' } = {}) {
+  const steps = 70;
+  const n = Math.floor(steps * progress);
+  g.save();
+  g.strokeStyle = color;
+  g.lineWidth = width;
+  g.lineCap = 'round';
+  g.beginPath();
+  for (let i = 0; i <= n; i++) {
+    const t = (i / steps) * Math.PI * 2;
+    const x = 16 * Math.sin(t) ** 3;
+    const y = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
+    const px = cx + (x / 17) * s, py = cy + (y / 17) * s;
+    if (i === 0) g.moveTo(px, py);
+    else g.lineTo(px, py);
+  }
+  g.stroke();
+  g.restore();
+}
+
+export function easeTo(obj, props, duration = 0.8, ease = 'power3.inOut') {
+  return window.gsap.to(obj, { ...props, duration, ease });
+}

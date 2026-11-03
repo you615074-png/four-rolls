@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Four Rolls</title>
+  <meta name="description" content="Four rolls of film, a darkroom, and a letter.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600&family=IBM+Plex+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&family=Special+Elite&display=swap">
+  <link rel="stylesheet" href="./styles.css">
+  <script type="importmap">{ "imports": { "three": "./vendor/three.module.js" } }</script>
+  <script src="./vendor/gsap.min.js"></script>
+</head>
+<body data-scene="table">
+  <main class="screen">
+    <div id="stage" class="stage" aria-label="A table with four rolls of film"></div>
+
+    <header class="hud">
+      <p id="hud-scene" class="hud-tag">SCENE 04 · THE ROLLS</p>
+      <p id="hud-count" class="hud-tag hud-right">4 ROLLS · 96 FRAMES</p>
+      <div id="hud-title" class="hud-title">
+        <h1>Four rolls, <em>one us</em></h1>
+        <p>every season we kept, wound up and waiting</p>
+      </div>
+      <div id="hud-caption" class="hud-caption" hidden>
+        <small></small>
+        <em></em>
+      </div>
+    </header>
+
+    <button id="hud-back" class="hud-back" type="button" hidden>← BACK TO THE TABLE</button>
+    <button id="side-note" class="side-note" type="button" hidden></button>
+
+    <div id="zoom" class="zoom" hidden><img alt="A frame seen through the loupe"></div>
+
+    <section id="letter" class="letter" hidden>
+      <div class="envelope"><span>for you</span></div>
+      <article class="letter-paper">
+        <p class="letter-head">ROLL 04 · STILL US · 96 FRAMES</p>
+        <p class="letter-body"></p>
+      </article>
+    </section>
+
+    <canvas id="grain" class="grain" width="200" height="200"></canvas>
+    <div class="vignette"></div>
+    <div id="fade" class="fade"></div>
+  </main>
+
+  <footer id="hint" class="hint">
+    <span id="hint-text">pick one</span>
+    <button id="hint-action" class="hint-action" type="button" hidden><span></span> <i>→</i></button>
+  </footer>
+
+  <script>
+    // animated film grain over everything
+    (() => {
+      const c = document.getElementById('grain');
+      const g = c.getContext('2d');
+      const img = g.createImageData(c.width, c.height);
+      const draw = () => {
+        for (let i = 0; i < img.data.length; i += 4) {
+          const v = Math.random() * 255;
+          img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
+          img.data[i + 3] = 255;
+        }
+        g.putImageData(img, 0, 0);
+      };
+      draw();
+      if (!matchMedia('(prefers-reduced-motion: reduce)').matches) setInterval(draw, 90);
+    })();
+  </script>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
