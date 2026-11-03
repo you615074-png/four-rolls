@@ -27,12 +27,64 @@ export function canvas(w, h) {
 export function canvasTexture(c, { repeat, srgb = true } = {}) {
   const t = new THREE.CanvasTexture(c);
   if (srgb) t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 8;
+  t.anisotropy = 16;
   if (repeat) {
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
     t.repeat.set(repeat[0], repeat[1]);
   }
   return t;
+}
+
+export const damp = (a, b, lambda, dt) => b + (a - b) * Math.exp(-lambda * dt);
+export const smooth = (a, b, x) => {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+
+let grainTile;
+/** A small mid-grey noise tile; laid over a canvas with 'overlay' it adds fine, even grain. */
+function grainPattern(g) {
+  if (!grainTile) {
+    const [c, gg] = canvas(256, 256);
+    const img = gg.createImageData(256, 256);
+    const r = rng(1234);
+    for (let i = 0; i < img.data.length; i += 4) {
+      const v = 128 + (r() + r() + r() - 1.5) * 70;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
+      img.data[i + 3] = 255;
+    }
+    gg.putImageData(img, 0, 0);
+    grainTile = c;
+  }
+  return g.createPattern(grainTile, 'repeat');
+}
+
+export function addGrain(g, w, h, strength = 0.3) {
+  g.save();
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.globalCompositeOperation = 'overlay';
+  g.globalAlpha = strength;
+  g.fillStyle = grainPattern(g);
+  g.fillRect(0, 0, w, h);
+  g.restore();
+}
+
+/** Soft low-frequency blotches: a tiny random canvas scaled up with smoothing. */
+function softNoise(g, w, h, seed, cells, alpha, colors) {
+  const [c, gg] = canvas(cells, cells);
+  const r = rng(seed);
+  for (let y = 0; y < cells; y++)
+    for (let x = 0; x < cells; x++) {
+      gg.fillStyle = colors[Math.floor(r() * colors.length)];
+      gg.globalAlpha = r();
+      gg.fillRect(x, y, 1, 1);
+    }
+  g.save();
+  g.globalAlpha = alpha;
+  g.imageSmoothingEnabled = true;
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(c, 0, 0, w, h);
+  g.restore();
 }
 
 /* ---------- placeholder photos ---------- */
@@ -50,11 +102,13 @@ const PALETTES = [
 const photoCache = new Map();
 
 /** A deterministic, photo-like placeholder (3:4 portrait). */
-export function placeholderPhoto(rollIndex, frameIndex, title = '') {
-  const key = `${rollIndex}:${frameIndex}`;
+export function placeholderPhoto(rollIndex, frameIndex, title = '', scale = 1.5) {
+  const key = `${rollIndex}:${frameIndex}:${scale}`;
   if (photoCache.has(key)) return photoCache.get(key);
+  // drawn in a 384×512 design space, rendered at `scale`
   const W = 384, H = 512;
-  const [c, g] = canvas(W, H);
+  const [c, g] = canvas(Math.round(W * scale), Math.round(H * scale));
+  g.scale(scale, scale);
   const r = rng(rollIndex * 997 + frameIndex * 131 + 7);
   const pal = PALETTES[Math.floor(r() * PALETTES.length)];
   const kind = (frameIndex + rollIndex * 2) % 5;
@@ -160,12 +214,7 @@ export function placeholderPhoto(rollIndex, frameIndex, title = '') {
   leak.addColorStop(1, 'rgba(255,140,60,0)');
   g.fillStyle = leak;
   g.fillRect(0, 0, W, H);
-  const img = g.getImageData(0, 0, W, H);
-  for (let i = 0; i < img.data.length; i += 4) {
-    const n = (r() - 0.5) * 22;
-    img.data[i] += n; img.data[i + 1] += n; img.data[i + 2] += n;
-  }
-  g.putImageData(img, 0, 0);
+  addGrain(g, c.width, c.height, 0.22);
 
   g.font = `500 13px ${FONT.mono}`;
   g.fillStyle = 'rgba(255,255,255,0.55)';
@@ -198,7 +247,7 @@ export function photoTexture(rollIndex, frameIndex, frame) {
   const src = photoSource(rollIndex, frameIndex, frame);
   const t = src instanceof HTMLCanvasElement ? new THREE.CanvasTexture(src) : new THREE.Texture(src);
   t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 8;
+  t.anisotropy = 16;
   if (src instanceof HTMLImageElement) {
     if (src.complete) t.needsUpdate = true;
     else src.addEventListener('load', () => (t.needsUpdate = true), { once: true });
@@ -207,9 +256,20 @@ export function photoTexture(rollIndex, frameIndex, frame) {
   return t;
 }
 
+/** Free a roll's GPU textures once its scene is gone. */
+export function releaseRoll(rollIndex) {
+  for (const [key, t] of texCache) {
+    if (key.startsWith(`${rollIndex}:`)) {
+      t.dispose();
+      texCache.delete(key);
+    }
+  }
+}
+
 export function photoURL(rollIndex, frameIndex, frame) {
   if (frame?.photo) return frame.photo;
-  return placeholderPhoto(rollIndex, frameIndex, frame?.title).toDataURL('image/jpeg', 0.9);
+  // full-screen view gets its own sharp render
+  return placeholderPhoto(rollIndex, frameIndex, frame?.title, 3.4).toDataURL('image/jpeg', 0.92);
 }
 
 /* ---------- the one photo shader: negative, positive, print developing ---------- */
@@ -285,59 +345,63 @@ export function photoMaterial(map, opts = {}) {
 /* ---------- static textures ---------- */
 
 export function velvetTexture() {
-  const S = 512;
+  const S = 1024;
   const [c, g] = canvas(S, S);
-  g.fillStyle = '#7a1b12';
+  g.fillStyle = '#741a12';
   g.fillRect(0, 0, S, S);
-  const img = g.getImageData(0, 0, S, S);
-  const r = rng(42);
-  for (let i = 0; i < img.data.length; i += 4) {
-    const n = (r() - 0.5) * 26;
-    img.data[i] += n;
-    img.data[i + 1] += n * 0.35;
-    img.data[i + 2] += n * 0.3;
-  }
-  g.putImageData(img, 0, 0);
-  g.globalAlpha = 0.05;
-  for (let i = 0; i < 900; i++) {
-    g.strokeStyle = r() > 0.5 ? '#000' : '#c04030';
+  softNoise(g, S, S, 42, 24, 0.22, ['#3a0806', '#9a2a1c']);
+  softNoise(g, S, S, 7, 96, 0.1, ['#2a0504', '#a8341f']);
+  // pile: short soft strokes that catch the light
+  const r = rng(5);
+  g.lineCap = 'round';
+  for (let i = 0; i < 2600; i++) {
+    g.strokeStyle = r() > 0.5 ? 'rgba(20,0,0,0.05)' : 'rgba(210,90,70,0.05)';
+    g.lineWidth = 1 + r() * 1.5;
+    const x = r() * S, y = r() * S, a = r() * Math.PI;
     g.beginPath();
-    const x = r() * S, y = r() * S;
     g.moveTo(x, y);
-    g.lineTo(x + (r() - 0.5) * 30, y + (r() - 0.5) * 30);
+    g.lineTo(x + Math.cos(a) * 9, y + Math.sin(a) * 9);
     g.stroke();
   }
-  return canvasTexture(c, { repeat: [10, 10] });
+  addGrain(g, S, S, 0.12);
+  return canvasTexture(c, { repeat: [7, 7] });
 }
 
 export function corkTexture() {
-  const S = 512;
+  const S = 1024;
   const [c, g] = canvas(S, S);
-  g.fillStyle = '#8a5a34';
+  g.fillStyle = '#86562f';
   g.fillRect(0, 0, S, S);
+  softNoise(g, S, S, 11, 32, 0.25, ['#4a2a12', '#b07a48']);
   const r = rng(9);
-  for (let i = 0; i < 9000; i++) {
+  for (let i = 0; i < 26000; i++) {
     const v = r();
-    g.fillStyle = v > 0.6 ? 'rgba(60,32,14,0.5)' : v > 0.3 ? 'rgba(176,122,74,0.45)' : 'rgba(40,20,8,0.35)';
+    g.fillStyle = v > 0.6 ? 'rgba(60,32,14,0.45)' : v > 0.3 ? 'rgba(176,122,74,0.4)' : 'rgba(40,20,8,0.3)';
     g.beginPath();
-    g.arc(r() * S, r() * S, 0.6 + r() * 2.2, 0, Math.PI * 2);
+    g.arc(r() * S, r() * S, 0.8 + r() * 2.6, 0, Math.PI * 2);
     g.fill();
   }
   return canvasTexture(c, { repeat: [3, 2] });
 }
 
+export function glowTexture() {
+  const [c, g] = canvas(256, 256);
+  const grad = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+  grad.addColorStop(0, 'rgba(255,246,228,1)');
+  grad.addColorStop(0.35, 'rgba(255,226,190,0.45)');
+  grad.addColorStop(1, 'rgba(255,200,150,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 256, 256);
+  return canvasTexture(c);
+}
+
 /** Handwritten / typed text on a paper card. */
-export function cardTexture({ w = 512, h = 320, bg = '#efe6d2', lines = [], border = false }) {
-  const [c, g] = canvas(w, h);
+export function cardTexture({ w = 512, h = 320, bg = '#efe6d2', lines = [], border = false, scale = 2 }) {
+  const [c, g] = canvas(w * scale, h * scale);
+  g.scale(scale, scale);
   g.fillStyle = bg;
   g.fillRect(0, 0, w, h);
-  const r = rng(w * 3 + h);
-  const img = g.getImageData(0, 0, w, h);
-  for (let i = 0; i < img.data.length; i += 4) {
-    const n = (r() - 0.5) * 10;
-    img.data[i] += n; img.data[i + 1] += n; img.data[i + 2] += n;
-  }
-  g.putImageData(img, 0, 0);
+  addGrain(g, c.width, c.height, 0.08);
   if (border) {
     g.strokeStyle = 'rgba(0,0,0,0.12)';
     g.lineWidth = 2;

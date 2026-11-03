@@ -42,7 +42,8 @@
       </article>
     </section>
 
-    <canvas id="grain" class="grain" width="200" height="200"></canvas>
+    <div id="anchors" class="anchors"></div>
+    <div id="grain" class="grain"></div>
     <div class="vignette"></div>
     <div id="fade" class="fade"></div>
   </main>
@@ -51,23 +52,29 @@
     <span id="hint-text">pick one</span>
     <button id="hint-action" class="hint-action" type="button" hidden><span></span> <i>→</i></button>
   </footer>
+  <div id="tag" class="tag" aria-hidden="true"></div>
 
   <script>
-    // animated film grain over everything
+    // fine film grain: one noise tile at device resolution, jittered rather than redrawn
     (() => {
-      const c = document.getElementById('grain');
+      const el = document.getElementById('grain');
+      const size = 256;
+      const c = document.createElement('canvas');
+      c.width = c.height = size;
       const g = c.getContext('2d');
-      const img = g.createImageData(c.width, c.height);
-      const draw = () => {
-        for (let i = 0; i < img.data.length; i += 4) {
-          const v = Math.random() * 255;
-          img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
-          img.data[i + 3] = 255;
-        }
-        g.putImageData(img, 0, 0);
-      };
-      draw();
-      if (!matchMedia('(prefers-reduced-motion: reduce)').matches) setInterval(draw, 90);
+      const img = g.createImageData(size, size);
+      for (let i = 0; i < img.data.length; i += 4) {
+        const v = 128 + (Math.random() + Math.random() + Math.random() - 1.5) * 90;
+        img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
+        img.data[i + 3] = 255;
+      }
+      g.putImageData(img, 0, 0);
+      el.style.backgroundImage = `url(${c.toDataURL()})`;
+      el.style.backgroundSize = `${size / devicePixelRatio}px`;
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      setInterval(() => {
+        el.style.backgroundPosition = `${(Math.random() * size) | 0}px ${(Math.random() * size) | 0}px`;
+      }, 70);
     })();
   </script>
   <script type="module" src="./src/main.js"></script>

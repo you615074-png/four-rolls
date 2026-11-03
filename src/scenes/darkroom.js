@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { ROLLS, COPY, NOTES } from '../content.js';
 import { hud } from '../hud.js';
 import { FILM, bottle, clip, clothesline, lightBox, loupe, paperStack, pen, stripSegment, tray } from '../props.js';
-import { FONT, canvas, canvasTexture, cardTexture, photoMaterial, photoTexture, photoURL, wrapText } from '../util.js';
+import { FONT, canvas, canvasTexture, cardTexture, damp, photoMaterial, photoTexture, photoURL, wrapText } from '../util.js';
 
 const gsap = window.gsap;
 const STILL = 3;
@@ -115,10 +115,13 @@ export function lightboxScene(stage, app) {
   stage.world.add(glass);
   stage.pick(glass, {
     cursor: 'none',
+    label: () => (over ? (seen.has(over.frameIndex) ? 'look again' : 'look closer') : 'slide onto a frame'),
     click: () => over && look(over),
   });
+  const guide = stage.anchor(new THREE.Vector3(slots[0].x, top, slots[0].z - 0.75), 'slide the loupe here', { dy: -6 });
   const target = new THREE.Vector3(1.6, top, 1.25);
-  stage.onFrame(() => {
+  let raise = 0;
+  stage.onFrame((dt, t) => {
     const p = stage.pointOnPlane(top);
     if (p && hud.zoom.hidden) {
       p.x = THREE.MathUtils.clamp(p.x, -2.0, 2.0);
@@ -131,14 +134,27 @@ export function lightboxScene(stage, app) {
       }
       target.set(over ? THREE.MathUtils.lerp(p.x, over.x, 0.6) : p.x, top + 0.02, over ? THREE.MathUtils.lerp(p.z, over.z, 0.6) : p.z);
     }
-    L.group.position.lerp(target, 0.2);
+    // the loupe glides after the pointer and lifts a little when it finds a frame
+    raise = damp(raise, over ? 0.08 + Math.sin(t * 3) * 0.01 : 0, 10, dt);
+    L.group.position.x = damp(L.group.position.x, target.x, 12, dt);
+    L.group.position.z = damp(L.group.position.z, target.z, 12, dt);
+    L.group.position.y = target.y + raise;
     if (over) {
       const dx = L.group.position.x - over.x, dz = L.group.position.z - over.z;
       lensMat.uniforms.uCrop.value.set(0.27 + dx * 0.35, 0.3 - dz * 0.25, 0.46, 0.4);
     }
   });
 
+  const sticker = (slot) => {
+    const dot = new THREE.Mesh(new THREE.CircleGeometry(0.07, 24), new THREE.MeshBasicMaterial({ color: '#d0261c' }));
+    dot.rotation.x = -Math.PI / 2;
+    dot.position.set(slot.x + 0.3, top + 0.006, slot.z - 0.52);
+    stage.world.add(dot);
+    gsap.from(dot.scale, { x: 0.01, y: 0.01, duration: 0.5, ease: 'back.out(3)' });
+  };
+
   const look = (slot) => {
+    guide.hide();
     const v = L.group.position.clone();
     v.y += 0.6;
     v.project(stage.camera);
@@ -147,9 +163,10 @@ export function lightboxScene(stage, app) {
     gsap.to(stage.rig, { px: L.group.position.x, py: 2.2, pz: L.group.position.z + 0.6, tx: L.group.position.x, ty: 0, tz: L.group.position.z, duration: 0.9, ease: 'power3.inOut' });
     hud.openZoom(photoURL(STILL, slot.frameIndex, slot.frame), from, () => {
       gsap.to(stage.rig, { ...home, duration: 0.9, ease: 'power3.inOut' });
+      if (!seen.has(slot.frameIndex)) sticker(slot);
       seen.add(slot.frameIndex);
       hud.setCount(`${seen.size} OF ${picks.length} SEEN`);
-      if (seen.size === picks.length) hud.say(null, { label: COPY.printThem, run: () => app.go('tray') });
+      hud.say(seen.size === picks.length ? null : COPY.lightbox, { label: COPY.printThem, run: () => app.go('tray') });
     });
   };
 }
@@ -218,9 +235,13 @@ export function trayScene(stage, app) {
     }
   };
 
+  const stackGuide = stage.anchor(new THREE.Vector3(stack.position.x, 0.2, stack.position.z), 'take a sheet', { dy: -18 });
+  let bath = null; // the sheet currently in the developer
+
   const develop = () => {
     if (busy || hung.length >= n || reading) return;
     busy = true;
+    stackGuide.hide();
     const k = hung.length;
     const frameIndex = picks[k];
     const p = makePrint(frameIndex, k);
@@ -229,32 +250,68 @@ export function trayScene(stage, app) {
     p.g.rotation.set(-Math.PI / 2, 0, 0.12);
     hud.say(COPY.wait);
     const inTray = t.group.position.clone().setY(t.liquidY + 0.005);
-    stage.onFrame((dt, time) => (p.mat.uniforms.uTime.value = time));
-    const tl = gsap.timeline();
-    tl.to(p.g.position, { x: (stack.position.x + inTray.x) / 2, y: 1.1, z: (stack.position.z + inTray.z) / 2, duration: 0.55, ease: 'power2.out' })
+    gsap.timeline({ onComplete: () => (bath = { p, k, frameIndex, inTray, progress: 0, boost: 0 }) })
+      .to(p.g.position, { x: (stack.position.x + inTray.x) / 2, y: 1.1, z: (stack.position.z + inTray.z) / 2, duration: 0.55, ease: 'power2.out' })
       .to(p.g.position, { x: inTray.x, y: inTray.y, z: inTray.z, duration: 0.6, ease: 'power2.in' })
       .to(p.g.rotation, { z: -0.04, duration: 1.1, ease: 'power2.inOut' }, 0)
-      .to(p.mat.uniforms.uDev, { value: 1, duration: 4.2, ease: 'power1.inOut' })
-      .to(p.g.position, { y: inTray.y + 0.012, duration: 1.4, yoyo: true, repeat: 2, ease: 'sine.inOut' }, '<')
+      .fromTo(t.liquid.position, { y: 0.215 }, { y: 0.2, duration: 0.9, ease: 'elastic.out(1, 0.3)' }, 1.1);
+  };
+
+  // developing: time does it slowly, rocking the tray hurries it along
+  stage.onFrame((dt, time) => {
+    for (const e of hung) {
+      if (e.moving || reading === e) continue;
+      e.sway = damp(e.sway ?? 0, e.hover ? 0.07 : 0, 6, dt);
+      e.g.rotation.z = e.home.rot.z + Math.sin(time * 1.3 + e.k) * 0.012 + Math.sin(time * 9) * e.sway * 0.4;
+    }
+    if (!bath) return;
+    const b = bath;
+    b.boost = damp(b.boost, 0, 2.2, dt);
+    b.progress = Math.min(1, b.progress + (dt / 6) * (1 + b.boost));
+    b.p.mat.uniforms.uDev.value = b.progress;
+    b.p.mat.uniforms.uTime.value = time;
+    b.p.g.position.y = b.inTray.y + Math.sin(time * 2.4) * 0.004 * (1 + b.boost);
+    b.p.g.rotation.z = -0.04 + Math.sin(time * 1.7) * 0.015 * (1 + b.boost);
+    if (b.progress >= 1) {
+      bath = null;
+      hangUp(b);
+    }
+  });
+
+  stage.pick(t.group, {
+    label: () => (bath ? 'rock the tray' : null),
+    cursor: () => (bath ? 'pointer' : 'default'),
+    click: () => {
+      if (!bath) return;
+      bath.boost = Math.min(bath.boost + 2.4, 7);
+      gsap.fromTo(t.group.rotation, { z: 0.045 * (Math.random() > 0.5 ? 1 : -1) }, { z: 0, duration: 1.1, ease: 'elastic.out(1, 0.3)' });
+      gsap.fromTo(t.liquid.position, { y: 0.225 }, { y: 0.2, duration: 1.0, ease: 'elastic.out(1, 0.25)' });
+    },
+  });
+
+  const hangUp = ({ p, k, frameIndex }) => {
+    const s = slot(k);
+    gsap.timeline()
       .to(p.g.position, { y: 1.6, duration: 0.6, ease: 'power2.out' })
-      .add(() => {
-        const s = slot(k);
-        gsap.to(p.g.position, { x: s.x, y: s.y, z: s.z, duration: 1.0, ease: 'power3.inOut' });
-        gsap.to(p.g.rotation, { x: 0, y: 0, z: (Math.random() - 0.5) * 0.05, duration: 1.0, ease: 'power3.inOut' });
-      })
+      .to(p.g.position, { x: s.x, y: s.y, z: s.z, duration: 1.0, ease: 'power3.inOut' })
+      .to(p.g.rotation, { x: 0, y: 0, z: (Math.random() - 0.5) * 0.05, duration: 1.0, ease: 'power3.inOut' }, '<')
       .add(() => {
         const c = clip();
-        const s = slot(k);
         c.position.set(s.x, lineY - 0.06, s.z + 0.03);
         stage.world.add(c);
         gsap.from(c.position, { y: lineY + 0.4, duration: 0.3, ease: 'power2.out' });
         const entry = { ...p, k, frameIndex, home: { pos: s.clone(), rot: p.g.rotation.clone() } };
         hung.push(entry);
-        stage.pick(p.g, { click: () => toggleRead(entry) });
+        stage.pick(p.g, {
+          label: () => (reading === entry ? 'hang it back' : 'read the back'),
+          enter: () => (entry.hover = true),
+          leave: () => (entry.hover = false),
+          click: () => toggleRead(entry),
+        });
         hud.setCount(`${hung.length} OF ${n} DRY`);
         busy = false;
         updateHint();
-      }, '+=1.05');
+      });
   };
 
   const toggleRead = (e) => {
@@ -262,7 +319,7 @@ export function trayScene(stage, app) {
     if (reading && reading !== e) return hangBack(reading);
     if (reading === e) return hangBack(e);
     reading = e;
-    e.home.rot = e.g.rotation.clone();
+    e.moving = true;
     const cam = stage.camera;
     const dir = new THREE.Vector3();
     cam.getWorldDirection(dir);
@@ -272,18 +329,20 @@ export function trayScene(stage, app) {
     look.lookAt(cam.position);
     look.rotateY(Math.PI);
     gsap.to(e.g.position, { x: spot.x, y: spot.y, z: spot.z, duration: 0.85, ease: 'power3.inOut' });
-    gsap.to(e.g.rotation, { x: look.rotation.x, y: look.rotation.y, z: look.rotation.z, duration: 1.1, ease: 'power3.inOut' });
+    gsap.to(e.g.rotation, { x: look.rotation.x, y: look.rotation.y, z: look.rotation.z, duration: 1.1, ease: 'power3.inOut', onComplete: () => (e.moving = false) });
     hud.say(COPY.hangBack);
   };
 
   const hangBack = (e) => {
     reading = null;
     gsap.to(e.g.position, { x: e.home.pos.x, y: e.home.pos.y, z: e.home.pos.z, duration: 0.85, ease: 'power3.inOut' });
-    gsap.to(e.g.rotation, { x: e.home.rot.x, y: e.home.rot.y, z: e.home.rot.z, duration: 0.85, ease: 'power3.inOut' });
+    e.moving = true;
+    gsap.to(e.g.rotation, { x: e.home.rot.x, y: e.home.rot.y, z: e.home.rot.z, duration: 0.85, ease: 'power3.inOut', onComplete: () => (e.moving = false) });
     updateHint();
   };
 
   stage.pick(stack, {
+    label: () => (hung.length + (busy ? 1 : 0) < n ? 'take a sheet' : null),
     click: develop,
     enter: () => gsap.to(stack.position, { y: 0.06, duration: 0.25 }),
     leave: () => gsap.to(stack.position, { y: 0, duration: 0.3 }),

@@ -33,6 +33,9 @@ async function boot() {
   let cleanup = null;
   let busy = false;
 
+  let lastDown = null;
+  addEventListener('pointerdown', (e) => (lastDown = { x: e.clientX, y: e.clientY }), true);
+
   const app = {
     stage,
     state: freshState(),
@@ -40,18 +43,20 @@ async function boot() {
     async go(name, params = {}) {
       if (busy) return;
       busy = true;
+      const from = lastDown;
       await hud.cut(() => {
         cleanup?.();
         cleanup = null;
         hud.sideNote(null);
         hud.zoom.hidden = true;
+        hud.say(null);
         stage.clear();
         if (params.reset) app.state = freshState();
         app.current = name;
         document.body.dataset.scene = name;
         const r = SCENES[name](stage, app, params);
         if (typeof r === 'function') cleanup = r;
-      });
+      }, from);
       busy = false;
     },
   };
@@ -61,7 +66,12 @@ async function boot() {
 
   document.body.dataset.scene = 'table';
   tableScene(stage, app);
-  window.gsap.to('#fade', { opacity: 0, duration: 1.2, ease: 'power2.out' });
+  hud.open(1.4);
+  addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (!hud.zoom.hidden) hud.zoom.click();
+    else if (!hud.back.hidden) app.go('table');
+  });
 }
 
 boot();

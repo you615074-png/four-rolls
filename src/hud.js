@@ -72,13 +72,30 @@ export const hud = {
     gsap.fromTo(this.side, { opacity: 0, x: -8 }, { opacity: 1, x: 0, duration: 0.8, ease: 'power2.out' });
   },
 
-  async cut(fn, { out = 0.38, inn = 0.6 } = {}) {
+  /* Scene changes close an iris on the point that was tapped, then open it from the middle. */
+  iris: { r: -12 },
+  drawIris() {
+    this.fade.style.setProperty('--ir', `${this.iris.r}vmax`);
+  },
+  irisAt(x, y) {
+    const r = this.fade.getBoundingClientRect();
+    this.fade.style.setProperty('--ix', `${x - r.left}px`);
+    this.fade.style.setProperty('--iy', `${y - r.top}px`);
+  },
+  open(duration = 1.1) {
+    const r = this.fade.getBoundingClientRect();
+    this.irisAt(r.left + r.width / 2, r.top + r.height * 0.48);
+    return gsap.to(this.iris, { r: 160, duration, ease: 'power2.inOut', onUpdate: () => this.drawIris() });
+  },
+  async cut(fn, from) {
     this.fade.style.pointerEvents = 'auto';
-    await gsap.to(this.fade, { opacity: 1, duration: out, ease: 'power2.in' });
+    gsap.killTweensOf(this.iris);
+    if (from) this.irisAt(from.x, from.y);
+    await gsap.to(this.iris, { r: -12, duration: 0.6, ease: 'power3.in', onUpdate: () => this.drawIris() });
     await fn();
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    await gsap.to(this.fade, { opacity: 0, duration: inn, ease: 'power2.out' });
     this.fade.style.pointerEvents = '';
+    await this.open(0.85);
   },
 
   /** Full-bleed photo, zooming out of a point on screen (the loupe). */

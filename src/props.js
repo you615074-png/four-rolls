@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from '../vendor/RoundedBoxGeometry.js';
-import { FONT, canvas, canvasTexture, cardTexture, rng } from './util.js';
+import { FONT, addGrain, canvas, canvasTexture, cardTexture } from './util.js';
 
-const std = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0, ...o });
+const std = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0, dithering: true, ...o });
 
 function shadowed(obj) {
   obj.traverse((m) => {
@@ -19,17 +19,12 @@ function shadowed(obj) {
 export const CAN = { r: 0.46, h: 1.72 };
 
 function labelTexture(roll) {
-  const [c, g] = canvas(1024, 512);
+  const [c, g] = canvas(2048, 1024);
+  g.scale(2, 2);
   const { paper, ink, line } = roll.label;
   g.fillStyle = paper;
   g.fillRect(0, 0, 1024, 512);
-  const r = rng(roll.no.charCodeAt(1) * 77);
-  const img = g.getImageData(0, 0, 1024, 512);
-  for (let i = 0; i < img.data.length; i += 4) {
-    const n = (r() - 0.5) * 14;
-    img.data[i] += n; img.data[i + 1] += n; img.data[i + 2] += n;
-  }
-  g.putImageData(img, 0, 0);
+  addGrain(g, 2048, 1024, 0.1);
   g.strokeStyle = line;
   g.lineWidth = 3;
   g.beginPath();
@@ -101,7 +96,8 @@ let stripTex;
 export function stripTexture() {
   if (stripTex) return stripTex;
   const W = 256, H = 384;
-  const [c, g] = canvas(W, H);
+  const [c, g] = canvas(W * 2, H * 2);
+  g.scale(2, 2);
   const grad = g.createLinearGradient(0, 0, 0, H);
   grad.addColorStop(0, '#b4501d');
   grad.addColorStop(0.5, '#c86428');

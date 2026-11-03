@@ -110,7 +110,7 @@ export function wallScene(stage, app) {
     app.go('letter');
   };
   stage.onEmptyClick = open;
-  stage.pick(cork, { cursor: 'pointer', click: open });
+  stage.pick(cork, { cursor: 'pointer', label: 'open the letter', click: open });
   const timer = setTimeout(open, 9000);
   return () => clearTimeout(timer);
 }
