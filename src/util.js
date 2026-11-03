@@ -272,6 +272,15 @@ export function photoURL(rollIndex, frameIndex, frame) {
   return placeholderPhoto(rollIndex, frameIndex, frame?.title, 3.4).toDataURL('image/jpeg', 0.92);
 }
 
+const thumbCache = new Map();
+/** A small JPEG of a frame for DOM thumbnails. */
+export function photoThumb(rollIndex, frameIndex, frame) {
+  if (frame?.photo) return frame.photo;
+  const key = `${rollIndex}:${frameIndex}`;
+  if (!thumbCache.has(key)) thumbCache.set(key, placeholderPhoto(rollIndex, frameIndex, frame?.title, 0.75).toDataURL('image/jpeg', 0.88));
+  return thumbCache.get(key);
+}
+
 /* ---------- the one photo shader: negative, positive, print developing ---------- */
 
 const PHOTO_VERT = /* glsl */ `
@@ -291,6 +300,7 @@ uniform float uBright;
 uniform float uTime;
 uniform vec3 uPaper;
 uniform float uFlash;   // white flash for the slide viewer
+uniform float uBlur;    // lens defocus radius, in uv units
 varying vec2 vUv;
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -302,6 +312,17 @@ float noise(vec2 p) {
 
 void main() {
   vec3 c = texture2D(uMap, vUv).rgb;
+  if (uBlur > 0.0004) {
+    // golden-angle disc: a smooth defocus, no blocky mip steps
+    vec3 acc = c;
+    for (int i = 0; i < 32; i++) {
+      float fi = float(i) + 0.5;
+      float a = fi * 2.39996;
+      vec2 o = vec2(cos(a), sin(a) * 0.78) * sqrt(fi / 32.0) * uBlur;
+      acc += texture2D(uMap, vUv + o).rgb;
+    }
+    c = acc / 33.0;
+  }
   vec3 g = pow(max(c, 0.0), vec3(1.0 / 2.2));
   float l = dot(g, vec3(0.299, 0.587, 0.114));
 
@@ -333,6 +354,7 @@ export function photoMaterial(map, opts = {}) {
       uTime: { value: 0 },
       uPaper: { value: new THREE.Color(opts.paper ?? '#f3eee2') },
       uFlash: { value: 0 },
+      uBlur: { value: opts.blur ?? 0 },
       uCrop: { value: new THREE.Vector4(0, 0, 1, 1) },
     },
     vertexShader: PHOTO_VERT,

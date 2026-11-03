@@ -3,8 +3,8 @@ import { ROLLS, COPY } from '../content.js';
 import { hud } from '../hud.js';
 import { CAN, FILM, canister, pen, slideViewer, stripSegment } from '../props.js';
 import {
-  FONT, canvas, canvasTexture, damp, glowTexture, handHeart, handLoop,
-  photoMaterial, photoSource, photoTexture, releaseRoll, smooth,
+  FONT, canvas, canvasTexture, cardTexture, damp, glowTexture, handLoop,
+  photoMaterial, photoTexture, releaseRoll, smooth,
 } from '../util.js';
 
 const gsap = window.gsap;
@@ -98,7 +98,9 @@ export function tableScene(stage, app) {
 
   if (!opened.size) invite = stage.anchor(new THREE.Vector3(-0.75, 0.9, 1.35), 'tap a roll to open it', { dy: -26 });
   const canGo = opened.has(STILL) || opened.size === ROLLS.length;
-  hud.say(opened.size && !opened.has(STILL) ? COPY.stillDecides : COPY.pickOne, canGo ? { label: COPY.toDarkroom, run: () => app.go('lightbox') } : null);
+  hud.say(opened.size && !opened.has(STILL) ? COPY.stillDecides : COPY.pickOne);
+  const n = app.state.circled.size;
+  if (canGo) hud.cta(COPY.toDarkroom, () => app.go('lightbox'), n ? `${n} frame${n > 1 ? 's' : ''} to print` : 'the light box is on');
 }
 
 /* ---------- a strip standing on the table, coming out of its can ---------- */
@@ -206,7 +208,7 @@ export function rollScene(stage, app, { index }) {
   hud.set({ scene: 'SCENE 04 · THE ROLLS', count: `ROLL ${roll.no} · ${roll.name.toUpperCase()}`, back: true });
   hud.say(roll.hint);
   stage.parallaxAmount = 0.1;
-  if (roll.mode === 'contact') return contactSheet(stage, app, index);
+  if (roll.mode === 'contact') return stillDeck(stage, app, index);
 
   stage.view({ pos: [1.9, 2.2, 7.0], target: [1.9, 0.86, 0], fov: 34 });
   stage.light({ pos: [1.6, 7.5, 4.5], target: [1.8, 0.6, 0], intensity: 120, angle: 0.55 });
@@ -307,10 +309,22 @@ function lightRoll(stage, index) {
   let held = null;
   const guide = stage.anchor(strip.items[2].seg, 'tap one', { dy: -120 });
 
+  const dropNote = (it) => {
+    if (!it.note) return;
+    it.seg.remove(it.note);
+    it.note.material.map.dispose();
+    it.note.material.dispose();
+    it.note = null;
+  };
+
   const putBack = (it) => {
     held = null;
     it.ready = false;
+    it.flipped = false;
     hud.setCaption(null);
+    hud.say(ROLLS[index].hint);
+    gsap.killTweensOf(it.seg.position);
+    gsap.killTweensOf(it.seg.rotation);
     gsap.to(glow.material, { opacity: 0, duration: 0.5 });
     gsap.to(it.mat.uniforms.uNeg, { value: 1, duration: 0.9 });
     gsap.to(it.mat.uniforms.uBright, { value: 0.92, duration: 0.6 });
@@ -322,6 +336,7 @@ function lightRoll(stage, index) {
       onComplete: () => {
         it.out = false;
         it.seg.children[0].castShadow = true;
+        dropNote(it);
         if (it.label) {
           it.seg.remove(it.label);
           it.label = null;
@@ -335,10 +350,12 @@ function lightRoll(stage, index) {
     guide.hide();
     held = it;
     it.out = true;
+    it.flipped = false;
     it.liftTo = it.lift = 0;
     it.seg.traverse((m) => (m.castShadow = false));
     if (!it.label) it.seg.add((it.label = edgePrint(ROLLS[index], it)));
     hud.setCaption({ small: `${it.frame.date} · FRAME ${frameNo(it.i)}`, title: it.frame.title });
+    hud.say('tap it again to turn it over · tap outside to put it back');
     gsap.to(glow.material, { opacity: 0.95, duration: 0.9, delay: 0.25 });
     gsap.to(it.seg.position, { x: target.x, y: target.y, z: target.z, duration: 0.9, ease: 'power3.inOut' });
     gsap.to(it.seg.rotation, { x: 0, y: -0.08, z: 0.04, duration: 0.9, ease: 'power3.inOut', onComplete: () => (it.ready = true) });
@@ -346,13 +363,35 @@ function lightRoll(stage, index) {
     gsap.to(it.mat.uniforms.uNeg, { value: 0, duration: 1.4, delay: 0.35, ease: 'power2.inOut' });
   };
 
+  // turning the frame over shows what was written on the slip taped behind it
+  const flip = (it) => {
+    if (!it.ready) return;
+    it.ready = false;
+    it.flipped = !it.flipped;
+    if (it.flipped && !it.note) it.seg.add((it.note = backNote(ROLLS[index], it)));
+    hud.say(it.flipped ? 'tap again to turn it back · tap outside to put it back' : 'tap it again to turn it over · tap outside to put it back');
+    hud.setCaption(it.flipped
+      ? { small: `THE BACK · ${it.frame.date}`, title: 'in pencil, on a slip of paper' }
+      : { small: `${it.frame.date} · FRAME ${frameNo(it.i)}`, title: it.frame.title });
+    gsap.to(glow.material, { opacity: it.flipped ? 0.4 : 0.95, duration: 0.8 });
+    gsap.timeline({ onComplete: () => {
+      it.ready = true;
+      if (!it.flipped) dropNote(it);
+    } })
+      .to(it.seg.position, { y: target.y + 0.2, z: target.z + 0.25, duration: 0.45, ease: 'power2.out' })
+      .to(it.seg.position, { y: target.y, z: target.z, duration: 0.55, ease: 'power2.inOut' })
+      .to(it.seg.rotation, { y: it.flipped ? Math.PI + 0.06 : -0.08, x: 0, z: it.flipped ? -0.03 : 0.04, duration: 1.0, ease: 'power3.inOut' }, 0);
+  };
+
   stage.onFrame((dt) => {
     if (!held?.ready) return;
     // the held frame follows the pointer; turning it away from the light dims it
     const tx = stage.parallax.x * 0.45, ty = -stage.parallax.y * 0.3;
     const r = held.seg.rotation;
-    r.y = damp(r.y, -0.08 + tx, 8, dt);
-    r.x = damp(r.x, ty, 8, dt);
+    const k = held.flipped ? 0.6 : 1;
+    r.y = damp(r.y, (held.flipped ? Math.PI + 0.06 : -0.08) + tx * k, 8, dt);
+    r.x = damp(r.x, ty * k, 8, dt);
+    if (held.flipped) return;
     glow.position.x = damp(glow.position.x, glowHome.x - tx * 1.4, 6, dt);
     glow.position.y = damp(glow.position.y, glowHome.y + ty * 1.2, 6, dt);
     held.mat.uniforms.uBright.value = damp(held.mat.uniforms.uBright.value, 1.18 - Math.hypot(tx, ty) * 0.5, 6, dt);
@@ -361,11 +400,27 @@ function lightRoll(stage, index) {
   for (const it of strip.items) {
     stage.pick(it.seg, {
       ...hoverLift(it),
-      label: () => (it.out ? 'put it back' : 'hold it up'),
-      click: () => (it.out ? putBack(it) : holdUp(it)),
+      label: () => (it !== held ? 'hold it up' : it.flipped ? 'turn it back' : 'turn it over'),
+      click: () => (it === held ? flip(it) : holdUp(it)),
     });
   }
   stage.onEmptyClick = () => held && putBack(held);
+}
+
+/** The slip taped to the back of a slow days frame, in handwriting. */
+function backNote(roll, it) {
+  const map = cardTexture({ w: 400, h: 600, bg: '#efe6d2', scale: 2, border: true, lines: [
+    { text: it.frame.date, font: `54px ${FONT.hand}`, x: 34, y: 92, color: '#9c2f1c', rot: -0.03 },
+    { text: it.frame.note, font: `40px ${FONT.hand}`, x: 34, y: 172, wrap: 330, lh: 48, color: '#2a2420' },
+    { text: `${roll.name.toUpperCase()} · ${frameNo(it.i)}`, font: `500 13px ${FONT.mono}`, x: 34, y: 560, color: '#9a8f82' },
+  ] });
+  const m = new THREE.Mesh(
+    new THREE.PlaneGeometry(FILM.pitch * 0.98, FILM.height * 0.98),
+    new THREE.MeshBasicMaterial({ map, color: '#e6dfd2' }),
+  );
+  m.rotation.y = Math.PI;
+  m.position.z = -0.012;
+  return m;
 }
 
 function edgePrint(roll, it) {
@@ -380,9 +435,11 @@ function edgePrint(roll, it) {
   return m;
 }
 
-/* far away: a slide viewer; the lever feeds one frame at a time. */
+/* far away: pull the lever and the carousel shuffles to a random slide.
+   It arrives out of focus, as far things do; turn the brass wheel to bring it in. */
 function viewerRoll(stage, index) {
   const roll = ROLLS[index];
+  const total = roll.frames.length;
   const strip = standingStrip(stage, index, { pulled: 5.4, min: 5.4, z: -0.25 });
   const v = slideViewer();
   v.group.position.set(1.05, 0, 0.65);
@@ -392,221 +449,393 @@ function viewerRoll(stage, index) {
   screen.uniforms.uFlash.value = 0.85;
   v.screen.material = screen;
   const knob = v.lever.children[1];
-  const guide = stage.anchor(knob, 'press the lever', { dy: -22 });
-  let cur = -1;
-  let knobTo = 1;
 
-  const step = (dir) => {
-    guide.hide();
-    cur = (cur + dir + roll.frames.length) % roll.frames.length;
-    gsap.timeline()
-      .to(v.lever.rotation, { x: dir > 0 ? -0.9 : 0.6, duration: 0.16, ease: 'power2.in' })
-      .to(v.lever.rotation, { x: 0, duration: 0.7, ease: 'elastic.out(1, 0.35)' });
-    const to = 5.4 + FILM.pitch * (cur + 1);
-    gsap.to(strip, { pulled: Math.min(to, strip.max), duration: 0.6, ease: 'power2.inOut', overwrite: true });
-    const f = roll.frames[cur];
-    screen.uniforms.uMap.value = photoTexture(index, cur, f);
-    gsap.fromTo(screen.uniforms.uFlash, { value: 1 }, { value: 0, duration: 0.8, ease: 'power2.out' });
-    hud.setCaption({ small: `${f.date} · FRAME ${frameNo(cur)}`, title: f.title });
-    hud.setCount(`FRAME ${cur + 1} OF ${roll.frames.length}`);
-    gsap.to(strip.items[cur].mat.uniforms.uNeg, { value: 0, duration: 1.0, delay: 0.3 });
+  // the focus wheel on the left of the viewer
+  const brass = new THREE.MeshStandardMaterial({ color: '#b08a52', roughness: 0.3, metalness: 0.7 });
+  const wheel = new THREE.Group();
+  const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.09, 48), brass);
+  disc.rotation.z = Math.PI / 2;
+  wheel.add(disc);
+  for (let k = 0; k < 18; k++) {
+    const rib = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.03, 0.03), brass);
+    const a = (k / 18) * Math.PI * 2;
+    rib.position.set(0, Math.cos(a) * 0.245, Math.sin(a) * 0.245);
+    rib.rotation.x = -a;
+    wheel.add(rib);
+  }
+  const dot = new THREE.Mesh(new THREE.CircleGeometry(0.035, 16), new THREE.MeshBasicMaterial({ color: '#c7231b' }));
+  dot.rotation.y = -Math.PI / 2;
+  dot.position.set(-0.047, 0.15, 0);
+  wheel.add(dot);
+  wheel.position.set(-0.8, 1.1, 0.12);
+  wheel.traverse((m) => (m.castShadow = true));
+  v.group.add(wheel);
+
+  const guide = stage.anchor(knob, 'pull the lever', { dy: -22 });
+  let focusGuide = null;
+  const found = new Set();
+  let cur = -1, focus = 0, aim = 0, sharp = true, spinning = false, knobTo = 1, shownAt = 0;
+
+  const show = (i, blur) => {
+    screen.uniforms.uMap.value = photoTexture(index, i, roll.frames[i]);
+    screen.uniforms.uBlur.value = blur;
   };
 
-  const lever = {
-    label: 'next frame',
+  const pull = () => {
+    if (spinning) return;
+    spinning = true;
+    guide.hide();
+    hud.setCaption({ small: 'SHUFFLING', title: '…' });
+    gsap.timeline()
+      .to(v.lever.rotation, { x: -0.9, duration: 0.16, ease: 'power2.in' })
+      .to(v.lever.rotation, { x: 0, duration: 0.7, ease: 'elastic.out(1, 0.35)' });
+    // the carousel clacks through a few slides, slowing down, then settles
+    const unseen = roll.frames.map((_, i) => i).filter((i) => !found.has(i) && i !== cur);
+    const pool = unseen.length ? unseen : roll.frames.map((_, i) => i).filter((i) => i !== cur);
+    const land = pool[Math.floor(Math.random() * pool.length)];
+    const tl = gsap.timeline({
+      onComplete: () => {
+        cur = land;
+        // land somewhere off focus, on either side of where the wheel is now
+        aim = focus + (Math.random() > 0.5 ? 1 : -1) * (0.55 + Math.random() * 0.45);
+        sharp = false;
+        spinning = false;
+        shownAt = performance.now();
+        hud.setCaption({ small: `FRAME ${frameNo(cur)} · OUT OF FOCUS`, title: 'turn the wheel to see it' });
+        hud.say('drag ⟷ or scroll to focus');
+        if (!found.size && !focusGuide) focusGuide = stage.anchor(wheel, '← drag to focus →', { dy: -40 });
+      },
+    });
+    const times = [0, 0.08, 0.17, 0.28, 0.41, 0.57, 0.77];
+    times.forEach((at, k) => {
+      tl.call(() => {
+        const i = k === times.length - 1 ? land : Math.floor(Math.random() * total);
+        show(i, 0.05);
+        screen.uniforms.uFlash.value = 0.55;
+        gsap.to(screen.uniforms.uFlash, { value: 0, duration: 0.12, overwrite: true });
+        gsap.to(strip, { pulled: Math.min(5.4 + FILM.pitch * (i + 1), strip.max), duration: 0.25, ease: 'power1.out', overwrite: true });
+      }, null, at);
+    });
+  };
+
+  const lockIn = () => {
+    sharp = true;
+    found.add(cur);
+    focusGuide?.hide();
+    focusGuide = null;
+    const f = roll.frames[cur];
+    gsap.to(screen.uniforms.uBlur, { value: 0, duration: 0.35, ease: 'power2.out', overwrite: true });
+    gsap.fromTo(screen.uniforms.uFlash, { value: 0.3 }, { value: 0, duration: 0.7, ease: 'power2.out' });
+    gsap.fromTo(screen.uniforms.uBright, { value: 1.5 }, { value: 1.25, duration: 0.9, ease: 'power2.out' });
+    hud.setCaption({ small: `${f.date} · FRAME ${frameNo(cur)}`, title: f.title });
+    hud.setCount(`${found.size} OF ${total} IN FOCUS`);
+    hud.say(found.size === total ? 'every slide found, pull again to wander' : 'pull the lever for another');
+    gsap.to(strip.items[cur].mat.uniforms.uNeg, { value: 0, duration: 1.0, delay: 0.2 });
+  };
+
+  const turn = (d) => {
+    focus += d;
+    wheel.rotation.x -= d * 2.2;
+    if (!sharp && Math.abs(focus - aim) < 0.06) lockIn();
+  };
+
+  stage.dragHandler = { label: 'drag ⟷ to focus', move: (dx) => turn(dx * 0.0042) };
+  stage.wheelHandler = (d) => turn(clamp(d, -60, 60) * 0.0016);
+
+  stage.pick(v.lever, {
+    label: 'pull for a random slide',
     enter: () => (knobTo = 1.22),
     leave: () => (knobTo = 1),
     press: () => (knobTo = 0.9),
     click: () => {
       knobTo = 1.22;
-      step(1);
+      pull();
     },
-  };
-  stage.pick(v.lever, lever);
-  stage.pick(v.screen, { label: 'next frame', click: () => step(1) });
+  });
+  stage.pick(v.screen, { label: () => (sharp ? 'another slide' : 'drag ⟷ to focus'), click: () => sharp && pull() });
+  stage.pick(wheel, { label: 'drag ⟷ to focus', cursor: 'ew-resize' });
+
   stage.onFrame((dt, t) => {
     screen.uniforms.uTime.value = t;
     knob.scale.setScalar(damp(knob.scale.x, knobTo, 14, dt));
+    if (!sharp && !spinning) {
+      const err = Math.abs(focus - aim);
+      screen.uniforms.uBlur.value = damp(screen.uniforms.uBlur.value, Math.min(1, err) * 0.042 + 0.002, 12, dt);
+      // a slow breath in the image hints that something is there to find
+      screen.uniforms.uBright.value = 1.18 + Math.sin(t * 2) * 0.04 * Math.min(1, err);
+      if (performance.now() - shownAt > 5000 && !focusGuide) focusGuide = stage.anchor(wheel, '← drag to focus →', { dy: -40 });
+    }
   });
 
   const keys = (e) => {
-    if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'Enter') step(1);
-    else if (e.key === 'ArrowLeft') step(-1);
+    if (e.key === ' ' || e.key === 'Enter') pull();
+    else if (e.key === 'ArrowRight') turn(0.05);
+    else if (e.key === 'ArrowLeft') turn(-0.05);
     else return;
     e.preventDefault();
   };
   addEventListener('keydown', keys);
+  hud.setCount(`0 OF ${total} IN FOCUS`);
   return () => removeEventListener('keydown', keys);
 }
 
-/* ---------- still us: the contact sheet ---------- */
+/* ---------- still us: a pile of prints, sorted into two heaps ---------- */
 
-function contactSheet(stage, app, index) {
-  const roll = ROLLS[index];
-  stage.view({ pos: [0.5, 7.9, 3.9], target: [0.5, 0, -0.05], fov: 36 });
-  stage.light({ pos: [0.5, 8.5, 2.2], target: [0.4, 0, -0.2], intensity: 160, angle: 0.7 });
-  gsap.from(stage.rig, { py: 9.1, pz: 4.6, duration: 1.4, ease: 'power3.out' });
+const MAX_PRINTS = 6;
 
-  const strip = standingStrip(stage, index, { pulled: 0.6, min: 0.6, x0: -3.1, z: -2.05 });
-  gsap.to(strip, { pulled: 6.8, duration: 2.2, delay: 0.2, ease: 'power3.out' });
-  dragToPull(stage, strip);
+function printCard(index, i, frame) {
+  const g = new THREE.Group();
+  const base = new THREE.Mesh(
+    new THREE.BoxGeometry(0.92, 0.008, 1.2),
+    new THREE.MeshStandardMaterial({ color: '#efe9dc', roughness: 0.82, dithering: true }),
+  );
+  base.castShadow = base.receiveShadow = true;
+  const photo = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 1.02), photoMaterial(photoTexture(index, i, frame), { bright: 0.96 }));
+  photo.rotation.x = -Math.PI / 2;
+  photo.position.set(0, 0.0045, -0.05);
+  const [c, gg] = canvas(512, 64);
+  gg.fillStyle = '#8a7d70';
+  gg.font = `40px ${FONT.hand}`;
+  gg.fillText(`${frame.date}  ·  ${frame.title}`, 12, 44);
+  const caption = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.1), new THREE.MeshBasicMaterial({ map: canvasTexture(c), transparent: true, depthWrite: false, color: '#cfc6b8' }));
+  caption.rotation.x = -Math.PI / 2;
+  caption.position.set(0, 0.0045, 0.53);
+  g.add(base, photo, caption);
+  return g;
+}
 
-  // the sheet: two rows of four frames, printed as small positives
-  const W = 2048, H = 1380;
-  const [c, g] = canvas(W, H);
+/** A red grease-pencil loop drawn over a print; returns a setter for 0..1. */
+function circleMark(card, seed) {
+  const [c, g] = canvas(512, 640);
   const tex = canvasTexture(c);
-  const cells = [];
-  const fw = 360, fh = 470, gap = 28, left = 196;
-  for (let row = 0; row < 2; row++) {
-    for (let col = 0; col < 4; col++) {
-      const i = row * 4 + col;
-      cells.push({ i, x: left + col * (fw + gap), y: 200 + row * (fh + 150), w: fw, h: fh });
-    }
-  }
-  const marks = new Map(); // frame index -> { circle, heart }
-  for (const i of app.state.circled) marks.set(i, { circle: 1, heart: app.state.hearts.has(i) ? 1 : 0, seed: i * 31 + 5 });
-  for (const i of app.state.hearts) if (!marks.has(i)) marks.set(i, { circle: 0, heart: 1, seed: i * 31 + 5 });
-  let hoverCell = -1;
-
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 1.25), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
+  m.rotation.x = -Math.PI / 2;
+  m.position.set(0, 0.006, -0.03);
+  card.add(m);
+  const st = { p: 0 };
   const draw = () => {
-    g.fillStyle = '#f2ece0';
-    g.fillRect(0, 0, W, H);
-    g.fillStyle = '#3b332c';
-    g.font = `500 26px ${FONT.mono}`;
-    g.fillText(`${roll.name.toUpperCase()} · ROLL ${roll.no} · 400`, left, 120);
-    g.textAlign = 'right';
-    g.fillText('SHEET 1 / 3', W - left, 120);
-    g.textAlign = 'left';
-    for (let row = 0; row < 2; row++) {
-      const y = cells[row * 4].y;
-      g.fillStyle = '#141110';
-      g.fillRect(left - 40, y - 56, 4 * (fw + gap) + 52, fh + 112);
-      g.fillStyle = '#e8e2d6';
-      for (let x = left - 30; x < left + 4 * (fw + gap); x += 46) {
-        g.fillRect(x, y - 44, 22, 26);
-        g.fillRect(x, y + fh + 18, 22, 26);
-      }
-    }
-    for (const cell of cells) {
-      const f = roll.frames[cell.i];
-      const src = photoSource(index, cell.i, f);
-      if (src.width) g.drawImage(src, cell.x, cell.y, cell.w, cell.h);
-      if (cell.i === hoverCell) {
-        g.fillStyle = 'rgba(255,240,220,0.14)';
-        g.fillRect(cell.x, cell.y, cell.w, cell.h);
-      }
-      g.fillStyle = '#d7a45a';
-      g.font = `500 18px ${FONT.mono}`;
-      g.fillText(`${cell.i + 1}A`, cell.x + 6, cell.y + fh + 74);
-    }
-    for (const [i, m] of marks) {
-      const cell = cells[i];
-      if (m.circle > 0) handLoop(g, cell.x + fw / 2, cell.y + fh / 2, fw * 0.52, fh * 0.5, m.circle, m.seed, { width: 7 });
-      if (m.heart > 0) handHeart(g, cell.x + fw + 4, cell.y + 30, 74, m.heart, { width: 7 });
-    }
+    g.clearRect(0, 0, 512, 640);
+    handLoop(g, 256, 310, 222, 282, st.p, seed, { width: 11, color: '#e0372a' });
     tex.needsUpdate = true;
   };
-  draw();
+  return { mesh: m, to: (p, duration = 0.8) => gsap.to(st, { p, duration, ease: 'power1.inOut', onUpdate: draw }) };
+}
 
-  const sheet = new THREE.Mesh(new THREE.PlaneGeometry(4.7, (4.7 * H) / W), new THREE.MeshStandardMaterial({ map: tex, color: '#cfc8bc', roughness: 0.92, dithering: true }));
-  sheet.rotation.set(-Math.PI / 2, 0, 0.035);
-  sheet.position.set(0.15, 0.012, 0.75);
-  sheet.receiveShadow = true;
-  stage.world.add(sheet);
+function pileMat(stage, { at, title, sub, ink, bg }) {
+  const map = cardTexture({ w: 380, h: 500, bg, scale: 2, border: true, lines: [
+    { text: title, font: `56px ${FONT.hand}`, x: 190, y: 66, align: 'center', color: ink },
+    { text: sub, font: `500 14px ${FONT.mono}`, x: 190, y: 96, align: 'center', color: ink },
+  ] });
+  const mat = new THREE.Mesh(new THREE.PlaneGeometry(1.85, 2.43), new THREE.MeshStandardMaterial({ map, color: '#c4baab', roughness: 0.9, dithering: true }));
+  mat.rotation.set(-Math.PI / 2, 0, at.x < 0 ? 0.05 : -0.04);
+  mat.position.set(at.x, 0.004, at.z - 0.08);
+  mat.receiveShadow = true;
+  stage.world.add(mat);
+  return mat;
+}
 
-  // tools: markers circle a frame to print it, the pencil draws a heart
-  const tools = [
-    { kind: 'red', tool: 'circle', pos: [3.25, 0.07, 0.55], rot: 0.08, label: 'red pen · circle to print' },
-    { kind: 'white', tool: 'circle', pos: [3.65, 0.07, 0.62], rot: -0.06, label: 'marker · circle to print' },
-    { kind: 'pencil', tool: 'heart', pos: [4.05, 0.05, 0.5], rot: 0.12, label: 'pencil · draw a heart' },
-  ];
-  let tool = 'circle';
-  let active = 0;
-  const pens = tools.map((t, k) => {
-    const p = pen(t.kind);
-    p.rotation.set(Math.PI / 2 - 0.1, 0, t.rot);
-    p.position.set(...t.pos);
-    p.userData.h = 0;
-    stage.world.add(p);
-    stage.pick(p, {
-      label: t.label,
-      enter: () => (p.userData.hover = 1),
-      leave: () => (p.userData.hover = 0),
-      click: () => {
-        tool = t.tool;
-        active = k;
-      },
-    });
-    return p;
-  });
-  const guides = [
-    stage.anchor(new THREE.Vector3(3.3, 0.1, 1.5), 'circle = print', { dy: 34, side: 'up' }),
-    stage.anchor(new THREE.Vector3(4.1, 0.1, 1.45), 'heart = love it', { dx: 30, dy: 30, side: 'right' }),
-  ];
-  stage.onFrame((dt, t) => {
-    pens.forEach((p, k) => {
-      const to = (k === active ? 0.3 + Math.sin(t * 2) * 0.03 : 0) + (p.userData.hover ? 0.08 : 0);
-      p.userData.h = damp(p.userData.h, to, 10, dt);
-      p.position.y = tools[k].pos[1] + p.userData.h;
-    });
-  });
+function stillDeck(stage, app, index) {
+  const roll = ROLLS[index];
+  const { circled, boxed } = app.state;
+  // side by side on a wide screen; on a phone the two heaps sit under the pile
+  const narrow = stage.camera.aspect < 1.15;
+  const homes = narrow
+    ? { box: new THREE.Vector3(-1.15, 0, 1.75), print: new THREE.Vector3(1.15, 0, 1.75), deck: new THREE.Vector3(0, 0, -1.0) }
+    : { box: new THREE.Vector3(-2.75, 0, 0.55), print: new THREE.Vector3(2.75, 0, 0.55), deck: new THREE.Vector3(0, 0, 0.45) };
+  const reach = narrow ? 0.75 : 1.25;
+  stage.view(narrow ? { pos: [0, 6.6, 2.6], target: [0, 0, 0.35], fov: 40 } : { pos: [0, 6.6, 4.3], target: [0, 0, 0.45], fov: 36 });
+  stage.light({ pos: [0.2, 8.5, 2.6], target: [0, 0, 0.3], intensity: 160, angle: 0.8 });
+  stage.parallaxAmount = 0.08;
+  gsap.from(stage.rig, { py: 8.2, pz: 5.4, duration: 1.4, ease: 'power3.out' });
 
-  let animating = 0;
-  const animate = (m, key, to) => {
-    animating++;
-    gsap.to(m, { [key]: to, duration: to ? 0.9 : 0.25, ease: to ? 'power1.inOut' : 'none', onUpdate: draw, onComplete: () => animating-- });
+  const mats = {
+    box: pileMat(stage, { at: homes.box, title: 'keep in the box', sub: '← DRAG LEFT', ink: '#5e4e3f', bg: '#d9cdb6' }),
+    print: pileMat(stage, { at: homes.print, title: 'print these', sub: `DRAG RIGHT → · UP TO ${MAX_PRINTS}`, ink: '#a8261a', bg: '#f0d6c8' }),
   };
 
+  const cards = roll.frames.map((f, i) => {
+    const g = printCard(index, i, f);
+    g.scale.setScalar(narrow ? 1.12 : 1.3);
+    stage.world.add(g);
+    return { g, i, frame: f, jitter: { x: (Math.random() - 0.5) * 0.08, z: (Math.random() - 0.5) * 0.08, r: (Math.random() - 0.5) * 0.12 } };
+  });
+  const deck = cards.filter((c) => !circled.has(c.i) && !boxed.has(c.i)).reverse(); // last element is on top
+  const piles = {
+    print: [...circled].map((i) => cards[i]),
+    box: [...boxed].map((i) => cards[i]),
+  };
+
+  const restAt = (where, k, c) => {
+    const h = homes[where];
+    const spread = where === 'deck' ? 0.35 : 1;
+    return { x: h.x + c.jitter.x * spread, y: 0.012 + k * 0.009, z: h.z + c.jitter.z * spread, r: c.jitter.r * (where === 'deck' ? 0.5 : 1.6) };
+  };
+  const placeAll = () => {
+    for (const where of ['deck', 'box', 'print']) {
+      const list = where === 'deck' ? deck : piles[where];
+      list.forEach((c, k) => {
+        const p = restAt(where, k, c);
+        c.g.position.set(p.x, p.y, p.z);
+        c.g.rotation.y = p.r;
+      });
+    }
+  };
+  placeAll();
+  for (const c of piles.print) (c.mark = circleMark(c.g, c.i * 31 + 5)).to(1, 0.01);
+
+  const top = () => deck[deck.length - 1] ?? null;
   const sync = () => {
-    for (const it of strip.items) gsap.to(it.mat.uniforms.uNeg, { value: app.state.circled.has(it.i) ? 0 : 1, duration: 1.2 });
-    const n = app.state.circled.size;
-    hud.setCount(`${n} TO PRINT`);
-    hud.say(roll.hint, n ? { label: COPY.toDarkroom, run: () => app.go('lightbox') } : null);
+    const n = piles.print.length;
+    hud.setCount(`${n} OF ${MAX_PRINTS} TO PRINT · ${deck.length} LEFT`);
+    const t = top();
+    hud.setCaption(t ? { small: `${t.frame.date} · FRAME ${frameNo(t.i)}`, title: t.frame.title } : null);
+    if (n) hud.cta(COPY.toDarkroom, () => app.go('lightbox'), `${n} to print`);
+    else hud.cta(null);
+    if (!t) hud.say(n ? 'all sorted. tap a heap to take one back' : 'nothing to print? tap the box to take one back');
   };
   sync();
 
-  const cellAt = (hit) => {
-    if (!hit?.uv) return null;
-    const px = hit.uv.x * W, py = (1 - hit.uv.y) * H;
-    return cells.find((q) => px > q.x - 30 && px < q.x + q.w + 30 && py > q.y - 40 && py < q.y + q.h + 40) ?? null;
+  // a print in flight from one place to another
+  const fly = (c, where, k, then) => {
+    const p = restAt(where, k, c);
+    gsap.killTweensOf(c.g.position);
+    gsap.timeline({ onComplete: then })
+      .to(c.g.position, { x: p.x, z: p.z, duration: 0.55, ease: 'power3.out' }, 0)
+      .to(c.g.position, { y: 0.5, duration: 0.22, ease: 'power2.out' }, 0)
+      .to(c.g.position, { y: p.y, duration: 0.33, ease: 'bounce.out' }, 0.22)
+      .to(c.g.rotation, { y: p.r, z: 0, x: 0, duration: 0.55, ease: 'power3.out' }, 0);
   };
 
-  stage.pick(sheet, {
-    cursor: 'crosshair',
-    label: (hit) => {
-      const cell = cellAt(hit);
-      if (!cell) return null;
-      if (tool === 'heart') return app.state.hearts.has(cell.i) ? 'rub out the heart' : 'draw a heart';
-      return app.state.circled.has(cell.i) ? 'un-circle' : 'circle to print';
+  let refused = 0;
+  const send = (where) => {
+    const c = top();
+    if (!c) return;
+    guides.forEach((g) => g.hide());
+    if (where === 'print' && piles.print.length >= MAX_PRINTS) {
+      refused++;
+      hud.say(`${COPY.printLimit}. take one back from the print heap first`);
+      gsap.fromTo(mats.print.scale, { x: 1.05, y: 1.05 }, { x: 1, y: 1, duration: 0.6, ease: 'elastic.out(1, 0.3)' });
+      return settle(c);
+    }
+    deck.pop();
+    piles[where].push(c);
+    (where === 'print' ? circled : boxed).add(c.i);
+    fly(c, where, piles[where].length - 1, () => {
+      if (where === 'print') (c.mark ??= circleMark(c.g, c.i * 31 + 5)).to(1);
+    });
+    if (refused && where !== 'print') hud.say(roll.hint);
+    sync();
+  };
+
+  const takeBack = (where) => {
+    const c = piles[where].pop();
+    if (!c) return;
+    (where === 'print' ? circled : boxed).delete(c.i);
+    c.mark?.to(0, 0.25);
+    deck.push(c);
+    fly(c, 'deck', deck.length - 1);
+    hud.say(roll.hint);
+    sync();
+  };
+
+  const settle = (c) => {
+    const p = restAt('deck', deck.length - 1, c);
+    gsap.to(c.g.position, { x: p.x, y: p.y, z: p.z, duration: 0.7, ease: 'elastic.out(1, 0.55)' });
+    gsap.to(c.g.rotation, { y: p.r, z: 0, duration: 0.6, ease: 'power3.out' });
+  };
+
+  // dragging the top print
+  let grab = null;
+  const lean = { box: 0, print: 0 };
+  stage.dragHandler = {
+    label: null,
+    start: () => {
+      const hit = stage.hit();
+      const c = top();
+      grab = c && hit?.object === c.g ? { c, off: null, vx: 0, last: performance.now() } : null;
+      if (grab) gsap.killTweensOf(c.g.position);
     },
-    over: (hit) => {
-      const i = cellAt(hit)?.i ?? -1;
-      if (i !== hoverCell) {
-        hoverCell = i;
-        if (!animating) draw();
-      }
+    move: () => {
+      if (!grab) return;
+      const p = stage.pointOnPlane(0.4);
+      if (!p) return;
+      const g = grab.c.g.position;
+      grab.off ??= { x: g.x - p.x, z: g.z - p.z };
+      const now = performance.now();
+      const nx = p.x + grab.off.x;
+      grab.vx = grab.vx * 0.5 + ((nx - (grab.x ?? nx)) / Math.max(8, now - grab.last)) * 1000 * 0.5;
+      grab.x = nx;
+      grab.z = p.z + grab.off.z * 0.5;
+      grab.last = now;
     },
-    leave: () => {
-      hoverCell = -1;
-      if (!animating) draw();
+    end: () => {
+      if (!grab) return;
+      const c = grab.c;
+      const x = (grab.x ?? c.g.position.x) + clamp(grab.vx, -12, 12) * 0.12;
+      grab = null;
+      if (x > reach) send('print');
+      else if (x < -reach) send('box');
+      else settle(c);
     },
-    click: (hit) => {
-      const cell = cellAt(hit);
-      if (!cell) return;
-      for (const gd of guides) gd.hide();
-      const m = marks.get(cell.i) ?? { circle: 0, heart: 0, seed: cell.i * 31 + 5 };
-      marks.set(cell.i, m);
-      if (tool === 'circle') {
-        const on = !app.state.circled.has(cell.i);
-        on ? app.state.circled.add(cell.i) : app.state.circled.delete(cell.i);
-        animate(m, 'circle', on ? 1 : 0);
-        sync();
-      } else {
-        const on = !app.state.hearts.has(cell.i);
-        on ? app.state.hearts.add(cell.i) : app.state.hearts.delete(cell.i);
-        animate(m, 'heart', on ? 1 : 0);
-      }
-    },
+  };
+
+  stage.onFrame((dt, t) => {
+    const c = top();
+    if (grab?.x !== undefined) {
+      const g = grab.c.g;
+      g.position.x = damp(g.position.x, grab.x, 20, dt);
+      g.position.z = damp(g.position.z, grab.z, 20, dt);
+      g.position.y = damp(g.position.y, 0.45, 14, dt);
+      g.rotation.y = damp(g.rotation.y, -g.position.x * 0.09, 10, dt);
+      g.rotation.z = damp(g.rotation.z, -clamp(grab.vx, -8, 8) * 0.012, 8, dt);
+    } else if (c && !touched && t > 2.2 && !gsap.isTweening(c.g.position)) {
+      // until someone touches it, the top print leans one way and the other
+      const w = Math.sin(t * 1.6);
+      c.g.position.x = homes.deck.x + c.jitter.x * 0.35 + Math.sign(w) * Math.abs(w) ** 6 * reach * 0.38;
+      c.g.rotation.y = c.jitter.r * 0.5 - Math.sign(w) * Math.abs(w) ** 6 * 0.08;
+    }
+    // the heap you're heading for brightens
+    const x = grab ? grab.c.g.position.x : 0;
+    lean.print = damp(lean.print, smooth(reach * 0.3, reach, x), 10, dt);
+    lean.box = damp(lean.box, smooth(-reach * 0.3, -reach, x), 10, dt);
+    mats.print.material.emissive.setRGB(0.32, 0.08, 0.04).multiplyScalar(lean.print);
+    mats.box.material.emissive.setRGB(0.18, 0.14, 0.1).multiplyScalar(lean.box);
   });
-  for (const it of strip.items) stage.pick(it.seg, { ...hoverLift(it), label: () => (app.state.circled.has(it.i) ? 'to print' : null) });
+
+  let touched = deck.length < cards.length;
+  for (const c of cards) {
+    stage.pick(c.g, {
+      label: () => {
+        if (c === top()) return 'drag ⟷ to sort';
+        if (c === piles.print.at(-1)) return 'take it back';
+        if (c === piles.box.at(-1)) return 'take it back';
+        return null;
+      },
+      cursor: () => (c === top() ? 'grab' : c === piles.print.at(-1) || c === piles.box.at(-1) ? 'pointer' : 'default'),
+      press: () => (touched = true),
+      click: () => {
+        if (c === piles.print.at(-1)) takeBack('print');
+        else if (c === piles.box.at(-1)) takeBack('box');
+        else if (c === top()) gsap.fromTo(c.g.position, { y: c.g.position.y }, { y: c.g.position.y + 0.18, duration: 0.18, yoyo: true, repeat: 1, ease: 'power2.out' });
+      },
+    });
+  }
+  stage.pick(mats.print, { label: () => (piles.print.length ? 'take the last one back' : null), click: () => takeBack('print') });
+  stage.pick(mats.box, { label: () => (piles.box.length ? 'take the last one back' : null), click: () => takeBack('box') });
+
+  const guides = touched ? [] : [
+    stage.anchor(new THREE.Vector3(homes.deck.x + 0.9, 0.3, homes.deck.z), 'print it →', { side: 'right', dx: narrow ? -10 : 20 }),
+    stage.anchor(new THREE.Vector3(homes.deck.x - 0.9, 0.3, homes.deck.z), '← keep it', { side: 'left', dx: narrow ? 10 : -20 }),
+  ];
+
+  const keys = (e) => {
+    if (e.key === 'ArrowRight') send('print');
+    else if (e.key === 'ArrowLeft') send('box');
+    else if (e.key === 'Backspace') takeBack(circled.size ? 'print' : 'box');
+    else return;
+    touched = true;
+    e.preventDefault();
+  };
+  addEventListener('keydown', keys);
+  return () => removeEventListener('keydown', keys);
 }

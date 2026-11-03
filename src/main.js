@@ -14,7 +14,7 @@ const SCENES = {
   letter: letterScene,
 };
 
-const freshState = () => ({ visited: new Set(), circled: new Set(), hearts: new Set() });
+const freshState = () => ({ visited: new Set(), circled: new Set(), boxed: new Set() });
 
 async function boot() {
   // canvas textures draw text, so the web fonts have to be ready first
@@ -47,7 +47,8 @@ async function boot() {
       await hud.cut(() => {
         cleanup?.();
         cleanup = null;
-        hud.sideNote(null);
+        hud.cta(null);
+        hud.picker.hidden = true;
         hud.zoom.hidden = true;
         hud.say(null);
         stage.clear();
@@ -69,7 +70,8 @@ async function boot() {
   hud.open(1.4);
   addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
-    if (!hud.zoom.hidden) hud.zoom.click();
+    if (!hud.picker.hidden) hud.picker.querySelector('.picker-cancel').click();
+    else if (!hud.zoom.hidden) hud.zoom.click();
     else if (!hud.back.hidden) app.go('table');
   });
 }

@@ -9,6 +9,18 @@ const TITLES = [
   'Pine Shade', 'Backlit', 'Slow Rooftop', 'Last Light',
 ];
 
+// Written on the back of the slow days frames. Short, one thought each.
+const SLOW_NOTES = [
+  'Placeholder. You fell asleep before the film ran out.',
+  'Placeholder. Nothing happened today, and it was perfect.',
+  'Placeholder. The kettle, the radio, your socks on the heater.',
+  'Placeholder. We walked the long way home on purpose.',
+  'Placeholder. Rain all afternoon. Neither of us minded.',
+  'Placeholder. You read me the boring parts out loud.',
+  'Placeholder. Same café, same seat, a different song.',
+  'Placeholder. The light did this for ten minutes, then left.',
+];
+
 function frames(rollIndex, startMonth) {
   return Array.from({ length: 24 }, (_, i) => {
     const day = ((i * 7 + rollIndex * 5) % 27) + 1;
@@ -17,6 +29,7 @@ function frames(rollIndex, startMonth) {
       date: `${String(month).padStart(2, '0')}.${String(day).padStart(2, '0')}`,
       title: TITLES[(i + rollIndex * 6) % TITLES.length],
       photo: null,
+      note: SLOW_NOTES[(i * 3 + rollIndex) % SLOW_NOTES.length],
     };
   });
 }
@@ -31,19 +44,19 @@ export const ROLLS = [
   {
     id: 'slow', name: 'slow days', no: '02', mode: 'light',
     label: { paper: '#c8411f', ink: '#3b0c05', line: '#e0805f' },
-    hint: 'tap a frame to hold it up to the light, move to tilt it',
+    hint: 'tap a frame to hold it to the light, tap it again to turn it over',
     frames: frames(1, 6),
   },
   {
     id: 'far', name: 'far away', no: '03', mode: 'viewer',
     label: { paper: '#1f3628', ink: '#d6c38c', line: '#5d7a5f' },
-    hint: 'press the lever, one frame at a time',
+    hint: 'pull the lever for a random slide, then drag to bring it into focus',
     frames: frames(2, 9),
   },
   {
     id: 'still', name: 'still us', no: '04', mode: 'contact',
     label: { paper: '#17191c', ink: '#e8e1cf', line: '#4b4e52' },
-    hint: 'circle the ones to print, a heart just means you love it',
+    hint: 'drag the top print: right to print it, left to keep it in the box',
     frames: frames(3, 10),
   },
 ];
@@ -57,10 +70,15 @@ export const COPY = {
   toDarkroom: 'to the darkroom',
   back: 'back to the table',
   lightbox: 'slide the loupe over a frame, tap to look closer',
+  swap: 'change negatives',
+  pickerTitle: 'Choose the negatives to print',
+  pickerSub: 'up to six, the paper only stretches that far',
+  pickerDone: 'lay them on the glass',
   printThem: "now, let's print them",
-  trayStart: 'tap the paper to start',
-  wait: 'wait for it, or rock the tray to hurry it',
-  next: 'tap the paper for the next one',
+  trayStart: 'take a sheet of paper to start',
+  wait: 'drag side to side to rock the tray, the image comes up faster',
+  next: 'take the next sheet',
+  printLimit: 'only six sheets of paper',
   readBack: 'tap a print to read the back',
   hangBack: 'tap again to hang it back',
   allDry: 'all dry,',

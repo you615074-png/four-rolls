@@ -11,7 +11,8 @@ export const hud = {
   hint: $('#hint'),
   hintText: $('#hint-text'),
   hintAction: $('#hint-action'),
-  side: $('#side-note'),
+  ctaEl: $('#cta'),
+  picker: $('#picker'),
   fade: $('#fade'),
   zoom: $('#zoom'),
   zoomImg: $('#zoom img'),
@@ -60,16 +61,28 @@ export const hud = {
     gsap.to(this.hint, { opacity: 0, duration: 0.2, onComplete: swap });
   },
 
-  /** A handwritten note drawn inside the screen (e.g. "all dry, to the wall →"). */
-  sideNote(lines, run) {
-    if (!lines) {
-      this.side.hidden = true;
+  /**
+   * The one big "next step" button inside the screen (to the darkroom, print them,
+   * to the wall). It arrives with a pulse so it can't be missed.
+   */
+  cta(label, run, sub = '') {
+    const el = this.ctaEl;
+    if (!label) {
+      el.hidden = true;
+      el.onclick = null;
+      el.dataset.label = '';
       return;
     }
-    this.side.hidden = false;
-    this.side.innerHTML = lines;
-    this.side.onclick = run;
-    gsap.fromTo(this.side, { opacity: 0, x: -8 }, { opacity: 1, x: 0, duration: 0.8, ease: 'power2.out' });
+    el.querySelector('b').textContent = label;
+    el.querySelector('small').textContent = sub;
+    el.onclick = run;
+    if (el.dataset.label === label && !el.hidden) return;
+    el.dataset.label = label;
+    el.hidden = false;
+    el.classList.remove('pulse');
+    void el.offsetWidth;
+    el.classList.add('pulse');
+    gsap.fromTo(el, { opacity: 0, y: 14, scale: 0.92 }, { opacity: 1, y: 0, scale: 1, duration: 0.7, ease: 'back.out(2)' });
   },
 
   /* Scene changes close an iris on the point that was tapped, then open it from the middle. */
@@ -96,6 +109,62 @@ export const hud = {
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     this.fade.style.pointerEvents = '';
     await this.open(0.85);
+  },
+
+  /**
+   * A sheet of thumbnails to choose frames from. Resolves with the chosen
+   * indices in order, or null when cancelled.
+   */
+  choose({ title, sub, done, items, selected, max }) {
+    const el = this.picker;
+    const pick = [...selected];
+    el.querySelector('h2').textContent = title;
+    el.querySelector('p').textContent = sub;
+    el.querySelector('.picker-done').textContent = done;
+    const grid = el.querySelector('.picker-grid');
+    const count = el.querySelector('.picker-count');
+    grid.innerHTML = '';
+    const cells = items.map((it, i) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'picker-cell';
+      b.innerHTML = `<img alt="" src="${it.src}"><span class="picker-no">${it.no}</span><em></em><i class="picker-msg">${it.title}</i>`;
+      b.onclick = () => {
+        const at = pick.indexOf(i);
+        if (at >= 0) pick.splice(at, 1);
+        else if (pick.length < max) pick.push(i);
+        else {
+          gsap.fromTo(count, { x: -5 }, { x: 0, duration: 0.5, ease: 'elastic.out(1, 0.3)' });
+          return;
+        }
+        sync();
+      };
+      grid.appendChild(b);
+      return b;
+    });
+    const sync = () => {
+      cells.forEach((b, i) => {
+        const at = pick.indexOf(i);
+        b.classList.toggle('on', at >= 0);
+        b.querySelector('em').textContent = at >= 0 ? at + 1 : '';
+      });
+      count.textContent = `${pick.length} / ${max}`;
+      el.querySelector('.picker-done').disabled = !pick.length;
+    };
+    sync();
+    el.hidden = false;
+    gsap.fromTo(el.querySelector('.picker-card'), { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.6, ease: 'power3.out' });
+    gsap.fromTo(el, { opacity: 0 }, { opacity: 1, duration: 0.4 });
+    return new Promise((resolve) => {
+      const close = async (result) => {
+        await gsap.to(el, { opacity: 0, duration: 0.3 });
+        el.hidden = true;
+        resolve(result);
+      };
+      el.querySelector('.picker-done').onclick = () => close(pick);
+      el.querySelector('.picker-cancel').onclick = () => close(null);
+      el.onclick = (e) => e.target === el && close(null);
+    });
   },
 
   /** Full-bleed photo, zooming out of a point on screen (the loupe). */
