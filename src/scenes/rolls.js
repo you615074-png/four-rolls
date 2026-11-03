@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { ROLLS, COPY } from '../content.js';
 import { hud } from '../hud.js';
+import { sfx } from '../sfx.js';
 import { CAN, FILM, canister, pen, slideViewer, stripSegment } from '../props.js';
 import {
   FONT, canvas, canvasTexture, cardTexture, damp, glowTexture, handLoop,
@@ -215,7 +216,7 @@ export function rollScene(stage, app, { index }) {
   gsap.from(stage.rig, { pz: 8.2, py: 2.6, duration: 1.4, ease: 'power3.out' });
 
   const modes = { develop: developRoll, light: lightRoll, viewer: viewerRoll };
-  const done = modes[roll.mode](stage, index);
+  const done = modes[roll.mode](stage, index, app.state.stats);
   return () => {
     done?.();
     releaseRoll(index);
@@ -224,7 +225,7 @@ export function rollScene(stage, app, { index }) {
 
 /* Mature: one continuous gesture. Drag the film out; the safelight develops
    every frame that passes under it. */
-function developRoll(stage, index) {
+function developRoll(stage, index, stats) {
   const roll = ROLLS[index];
   const strip = standingStrip(stage, index, { pulled: 0.7, min: 0.6 });
   gsap.to(strip, { pulled: 1.45, duration: 1.4, delay: 0.7, ease: 'power2.out' });
@@ -272,6 +273,16 @@ function developRoll(stage, index) {
         developedCount++;
         hud.setCount(`${developedCount} OF ${roll.frames.length} DEVELOPED`);
         gsap.fromTo(it.mat.uniforms.uBright, { value: 1.45 }, { value: 0.92, duration: 1.1, ease: 'power2.out' });
+        // each frame pings as it comes up; every sixth and the whole roll get a stamp
+        sfx.tick(1.1 + (developedCount % 6) * 0.08, 0.1);
+        stats.developed = Math.max(stats.developed, developedCount);
+        const sp = stage.toScreen(it.seg.getWorldPosition(new THREE.Vector3()));
+        hud.burst(sp.x, sp.y - 30, { n: 7, spread: 50 });
+        if (developedCount === roll.frames.length) {
+          hud.toast('the whole roll, developed', { kicker: `${roll.name} · 24 frames`, line: 'tap any frame to read its name', sound: 'success' });
+        } else if (developedCount % 6 === 0) {
+          hud.toast(`${developedCount} of ${roll.frames.length}`, { kicker: roll.name, line: ['keep pulling', 'a season, coming back', 'nearly there'][developedCount / 6 - 1] });
+        }
       }
     }
   });
@@ -286,6 +297,7 @@ function developRoll(stage, index) {
           return;
         }
         gsap.fromTo(it, { hop: 0 }, { hop: 0.22, duration: 0.24, yoyo: true, repeat: 1, ease: 'power2.out' });
+        sfx.pop();
         hud.setCaption({ small: `${it.frame.date} · FRAME ${frameNo(it.i)}`, title: it.frame.title });
       },
     });
@@ -293,7 +305,7 @@ function developRoll(stage, index) {
 }
 
 /* slow days: lift one frame to the light and tilt it with the pointer. */
-function lightRoll(stage, index) {
+function lightRoll(stage, index, stats) {
   const strip = standingStrip(stage, index, { pulled: 0.8, min: 0.8 });
   gsap.to(strip, { pulled: 5.6, duration: 1.8, delay: 0.3, ease: 'power3.out' });
   dragToPull(stage, strip, { label: 'drag ⟷ · tap a frame' });
@@ -348,6 +360,7 @@ function lightRoll(stage, index) {
   const holdUp = (it) => {
     if (held) putBack(held);
     guide.hide();
+    sfx.paper();
     held = it;
     it.out = true;
     it.flipped = false;
@@ -364,11 +377,26 @@ function lightRoll(stage, index) {
   };
 
   // turning the frame over shows what was written on the slip taped behind it
+  const read = new Set();
+  hud.setCount(`0 OF ${ROLLS[index].frames.length} NOTES READ`);
   const flip = (it) => {
     if (!it.ready) return;
     it.ready = false;
     it.flipped = !it.flipped;
     if (it.flipped && !it.note) it.seg.add((it.note = backNote(ROLLS[index], it)));
+    sfx.paper();
+    if (it.flipped && !read.has(it.i)) {
+      read.add(it.i);
+      stats.notes = Math.max(stats.notes, read.size);
+      hud.setCount(`${read.size} OF ${ROLLS[index].frames.length} NOTES READ`);
+      gsap.delayedCall(0.7, () => {
+        const sp = stage.toScreen(it.seg.getWorldPosition(new THREE.Vector3()));
+        hud.burst(sp.x, sp.y, { n: 12, spread: 80 });
+        sfx.chime();
+      });
+      if (read.size === 1) gsap.delayedCall(1.1, () => hud.toast('a note on the back', { kicker: 'slow days', line: 'every frame has one, turn a few more', sound: null }));
+      else if ([5, 12, 24].includes(read.size)) gsap.delayedCall(1.1, () => hud.toast(`${read.size} notes read`, { kicker: 'slow days', line: read.size === 24 ? 'every quiet day, accounted for' : 'the slow days add up', sound: 'success' }));
+    }
     hud.say(it.flipped ? 'tap again to turn it back · tap outside to put it back' : 'tap it again to turn it over · tap outside to put it back');
     hud.setCaption(it.flipped
       ? { small: `THE BACK · ${it.frame.date}`, title: 'in pencil, on a slip of paper' }
@@ -437,7 +465,7 @@ function edgePrint(roll, it) {
 
 /* far away: pull the lever and the carousel shuffles to a random slide.
    It arrives out of focus, as far things do; turn the brass wheel to bring it in. */
-function viewerRoll(stage, index) {
+function viewerRoll(stage, index, stats) {
   const roll = ROLLS[index];
   const total = roll.frames.length;
   const strip = standingStrip(stage, index, { pulled: 5.4, min: 5.4, z: -0.25 });
@@ -471,10 +499,21 @@ function viewerRoll(stage, index) {
   wheel.traverse((m) => (m.castShadow = true));
   v.group.add(wheel);
 
+  // a little lamp on top of the viewer glows brighter the closer the focus gets
+  const lampMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.25, 0.08, 0.04), toneMapped: false });
+  const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.075, 20, 14), lampMat);
+  lamp.position.set(0, 1.9, 0.3);
+  const lampGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: '#ff7a40', transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+  lampGlow.scale.setScalar(0.8);
+  lampGlow.position.copy(lamp.position);
+  v.group.add(lamp, lampGlow);
+
   const guide = stage.anchor(knob, 'pull the lever', { dy: -22 });
   let focusGuide = null;
   const found = new Set();
   let cur = -1, focus = 0, aim = 0, sharp = true, spinning = false, knobTo = 1, shownAt = 0;
+  let km = 0, lastTick = 0, lastErr = 1, hintAt = 0;
+  const near = () => (sharp ? 1 : 1 - Math.min(1, Math.abs(focus - aim)));
 
   const show = (i, blur) => {
     screen.uniforms.uMap.value = photoTexture(index, i, roll.frames[i]);
@@ -486,6 +525,7 @@ function viewerRoll(stage, index) {
     spinning = true;
     guide.hide();
     hud.setCaption({ small: 'SHUFFLING', title: '…' });
+    sfx.clack();
     gsap.timeline()
       .to(v.lever.rotation, { x: -0.9, duration: 0.16, ease: 'power2.in' })
       .to(v.lever.rotation, { x: 0, duration: 0.7, ease: 'elastic.out(1, 0.35)' });
@@ -501,6 +541,7 @@ function viewerRoll(stage, index) {
         sharp = false;
         spinning = false;
         shownAt = performance.now();
+        lastErr = Math.abs(focus - aim);
         hud.setCaption({ small: `FRAME ${frameNo(cur)} · OUT OF FOCUS`, title: 'turn the wheel to see it' });
         hud.say('drag ⟷ or scroll to focus');
         if (!found.size && !focusGuide) focusGuide = stage.anchor(wheel, '← drag to focus →', { dy: -40 });
@@ -511,6 +552,7 @@ function viewerRoll(stage, index) {
       tl.call(() => {
         const i = k === times.length - 1 ? land : Math.floor(Math.random() * total);
         show(i, 0.05);
+        sfx.tick(0.8 + k * 0.04, 0.16);
         screen.uniforms.uFlash.value = 0.55;
         gsap.to(screen.uniforms.uFlash, { value: 0, duration: 0.12, overwrite: true });
         gsap.to(strip, { pulled: Math.min(5.4 + FILM.pitch * (i + 1), strip.max), duration: 0.25, ease: 'power1.out', overwrite: true });
@@ -520,7 +562,6 @@ function viewerRoll(stage, index) {
 
   const lockIn = () => {
     sharp = true;
-    found.add(cur);
     focusGuide?.hide();
     focusGuide = null;
     const f = roll.frames[cur];
@@ -528,7 +569,20 @@ function viewerRoll(stage, index) {
     gsap.fromTo(screen.uniforms.uFlash, { value: 0.3 }, { value: 0, duration: 0.7, ease: 'power2.out' });
     gsap.fromTo(screen.uniforms.uBright, { value: 1.5 }, { value: 1.25, duration: 0.9, ease: 'power2.out' });
     hud.setCaption({ small: `${f.date} · FRAME ${frameNo(cur)}`, title: f.title });
-    hud.setCount(`${found.size} OF ${total} IN FOCUS`);
+    // the reward: where it was, and how far apart you were
+    const fresh = !found.has(cur);
+    found.add(cur);
+    if (fresh) km += f.km;
+    stats.km = Math.max(stats.km, km);
+    hud.setCount(`${found.size} OF ${total} IN FOCUS · ${km.toLocaleString('en')} KM`);
+    const s = stage.toScreen(v.screen.getWorldPosition(new THREE.Vector3()));
+    hud.burst(s.x, s.y, { n: 22, spread: 120 });
+    hud.toast(`${f.km.toLocaleString('en')} km apart`, { kicker: `${f.date} · ${f.place}`, line: f.line, hold: 2.6 });
+    if (fresh && found.size % 6 === 0) {
+      gsap.delayedCall(3.3, () => hud.toast(`${found.size} places found`, {
+        kicker: 'far away', line: `${km.toLocaleString('en')} km of missing you, so far`, sound: 'success',
+      }));
+    }
     hud.say(found.size === total ? 'every slide found, pull again to wander' : 'pull the lever for another');
     gsap.to(strip.items[cur].mat.uniforms.uNeg, { value: 0, duration: 1.0, delay: 0.2 });
   };
@@ -536,7 +590,21 @@ function viewerRoll(stage, index) {
   const turn = (d) => {
     focus += d;
     wheel.rotation.x -= d * 2.2;
-    if (!sharp && Math.abs(focus - aim) < 0.06) lockIn();
+    // detents on the wheel; they ring higher as the image comes in
+    if (Math.abs(focus - lastTick) > 0.045) {
+      lastTick = focus;
+      sfx.tick(0.7 + near() * 0.9, 0.06 + near() * 0.08);
+    }
+    if (sharp) return;
+    const err = Math.abs(focus - aim);
+    if (err < 0.06) return lockIn();
+    // say which way is right, but only now and then
+    const now = performance.now();
+    if (now - hintAt > 450 && Math.abs(err - lastErr) > 0.05) {
+      hintAt = now;
+      hud.setCaption({ small: `FRAME ${frameNo(cur)} · OUT OF FOCUS`, title: err < lastErr ? (err < 0.25 ? 'almost there…' : 'closer') : 'further away' });
+      lastErr = err;
+    }
   };
 
   stage.dragHandler = { label: 'drag ⟷ to focus', move: (dx) => turn(dx * 0.0042) };
@@ -558,6 +626,9 @@ function viewerRoll(stage, index) {
   stage.onFrame((dt, t) => {
     screen.uniforms.uTime.value = t;
     knob.scale.setScalar(damp(knob.scale.x, knobTo, 14, dt));
+    const glow = spinning ? 0 : sharp ? (cur < 0 ? 0 : 0.55) : near() ** 3;
+    lampGlow.material.opacity = damp(lampGlow.material.opacity, glow, 10, dt);
+    lampMat.color.setRGB(0.25 + glow * 2.2, 0.08 + glow * 0.9, 0.04 + glow * 0.3);
     if (!sharp && !spinning) {
       const err = Math.abs(focus - aim);
       screen.uniforms.uBlur.value = damp(screen.uniforms.uBlur.value, Math.min(1, err) * 0.042 + 0.002, 12, dt);
@@ -575,7 +646,7 @@ function viewerRoll(stage, index) {
     e.preventDefault();
   };
   addEventListener('keydown', keys);
-  hud.setCount(`0 OF ${total} IN FOCUS`);
+  hud.setCount(`0 OF ${total} IN FOCUS · 0 KM`);
   return () => removeEventListener('keydown', keys);
 }
 
@@ -713,6 +784,7 @@ function stillDeck(stage, app, index) {
     guides.forEach((g) => g.hide());
     if (where === 'print' && piles.print.length >= MAX_PRINTS) {
       refused++;
+      sfx.nope();
       hud.say(`${COPY.printLimit}. take one back from the print heap first`);
       gsap.fromTo(mats.print.scale, { x: 1.05, y: 1.05 }, { x: 1, y: 1, duration: 0.6, ease: 'elastic.out(1, 0.3)' });
       return settle(c);
@@ -720,9 +792,17 @@ function stillDeck(stage, app, index) {
     deck.pop();
     piles[where].push(c);
     (where === 'print' ? circled : boxed).add(c.i);
+    where === 'print' ? sfx.pen() : sfx.paper();
     fly(c, where, piles[where].length - 1, () => {
-      if (where === 'print') (c.mark ??= circleMark(c.g, c.i * 31 + 5)).to(1);
+      if (where !== 'print') return;
+      (c.mark ??= circleMark(c.g, c.i * 31 + 5)).to(1);
+      const sp = stage.toScreen(c.g.getWorldPosition(new THREE.Vector3()));
+      hud.burst(sp.x, sp.y, { n: 12, spread: 70, color: '255,120,90' });
+      const k = piles.print.length;
+      if (k === MAX_PRINTS) hud.toast('six chosen', { kicker: 'still us', line: 'the paper is ready, to the darkroom', sound: 'success' });
+      else if (k === 1) hud.toast('the first keeper', { kicker: 'still us', line: `up to ${MAX_PRINTS}, choose slowly`, sound: 'chime' });
     });
+    if (!deck.length) gsap.delayedCall(0.6, () => hud.toast('all sorted', { kicker: 'still us · 24 frames', line: `${piles.print.length} to print, the rest kept safe`, sound: 'success' }));
     if (refused && where !== 'print') hud.say(roll.hint);
     sync();
   };
@@ -733,6 +813,7 @@ function stillDeck(stage, app, index) {
     (where === 'print' ? circled : boxed).delete(c.i);
     c.mark?.to(0, 0.25);
     deck.push(c);
+    sfx.paper();
     fly(c, 'deck', deck.length - 1);
     hud.say(roll.hint);
     sync();

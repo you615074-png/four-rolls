@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { ROLLS, COPY, NOTES } from '../content.js';
 import { hud } from '../hud.js';
+import { sfx } from '../sfx.js';
 import { FILM, bottle, clip, clothesline, lightBox, loupe, paperStack, pen, stripSegment, tray } from '../props.js';
 import { FONT, canvas, canvasTexture, cardTexture, damp, glowTexture, photoMaterial, photoTexture, photoThumb, photoURL, wrapText } from '../util.js';
 
@@ -148,6 +149,9 @@ export function lightboxScene(stage, app) {
     dot.position.set(slot.x + 0.3, top + 0.006, slot.z - 0.52);
     stage.world.add(dot);
     slot.dot = dot;
+    sfx.pop();
+    const sp = stage.toScreen(dot.position);
+    hud.burst(sp.x, sp.y, { n: 8, spread: 40, color: '255,110,90' });
     gsap.from(dot.scale, { x: 0.01, y: 0.01, duration: 0.5, ease: 'back.out(3)' });
   };
 
@@ -192,6 +196,8 @@ export function lightboxScene(stage, app) {
     });
     slip.material.map.dispose();
     slip.material.map = slipMap();
+    sfx.paper();
+    hud.toast('new negatives on the glass', { kicker: 'the light box', line: `${picks.length} to print`, hold: 1.6, sound: null });
     prompt();
   };
   prompt();
@@ -204,10 +210,14 @@ export function lightboxScene(stage, app) {
     const r = stage.renderer.domElement.getBoundingClientRect();
     const from = { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height };
     gsap.to(stage.rig, { px: L.group.position.x, py: 2.2, pz: L.group.position.z + 0.6, tx: L.group.position.x, ty: 0, tz: L.group.position.z, duration: 0.9, ease: 'power3.inOut' });
+    sfx.tick(0.6, 0.18);
     hud.openZoom(photoURL(STILL, slot.frameIndex, slot.frame), from, () => {
       gsap.to(stage.rig, { ...home, duration: 0.9, ease: 'power3.inOut' });
-      if (!seen.has(slot.frameIndex)) sticker(slot);
-      seen.add(slot.frameIndex);
+      if (!seen.has(slot.frameIndex)) {
+        sticker(slot);
+        seen.add(slot.frameIndex);
+        if (seen.size === picks.length) hud.toast('every frame checked', { kicker: 'the light box', line: 'sharp enough to print', sound: 'success' });
+      }
       prompt();
     });
   };
@@ -304,12 +314,17 @@ export function trayScene(stage, app) {
   let bath = null; // the sheet currently in the developer
   const slosh = { tilt: 0, to: 0, wave: 0, wv: 0, stir: 0 };
 
+  let doneOnce = false;
   const updateHint = () => {
     if (hung.length < n) {
       hud.say(COPY.next);
       return;
     }
     hud.say(COPY.readBack);
+    if (!doneOnce) {
+      doneOnce = true;
+      gsap.delayedCall(1.2, () => hud.toast('all dry', { kicker: `${n} print${n > 1 ? "s" : ""} on the line`, line: 'tap one to read the back', sound: 'success' }));
+    }
     hud.cta(COPY.toWall, () => app.go('wall'), COPY.allDry.replace(',', ''));
   };
 
@@ -327,6 +342,7 @@ export function trayScene(stage, app) {
     stage.world.add(p.g);
     p.g.position.copy(stack.position).setY(0.14);
     p.g.rotation.set(-Math.PI / 2, 0, 0.12);
+    sfx.paper();
     hud.say(COPY.wait);
     hud.setCount(`PRINT ${k + 1} OF ${n} · 0%`);
     const inTray = t.group.position.clone().setY(t.liquidY + 0.005);
@@ -341,6 +357,7 @@ export function trayScene(stage, app) {
       .to(p.g.rotation, { z: -0.04, duration: 1.1, ease: 'power2.inOut' }, 0)
       .add(() => {
         // the sheet slaps the surface and sends a wave across
+        sfx.splash();
         slosh.wv += 2.4;
         slosh.stir = 1;
       }, 1.1);
@@ -352,7 +369,13 @@ export function trayScene(stage, app) {
     rockGuide?.hide();
     slosh.to = THREE.MathUtils.clamp(slosh.to + d, -0.07, 0.07);
     slosh.stir = Math.min(slosh.stir + Math.abs(d) * 9, 5);
+    const now = performance.now();
+    if (now - lastSlosh > 380 && Math.abs(d) > 0.004) {
+      lastSlosh = now;
+      sfx.splash(0.05 + Math.min(0.1, Math.abs(d)));
+    }
   };
+  let lastSlosh = 0;
   stage.dragHandler = { label: null, move: (dx) => rock(dx * 0.0011) };
 
   stage.onFrame((dt, time) => {
@@ -417,6 +440,11 @@ export function trayScene(stage, app) {
     const s = slot(k);
     gsap.fromTo(p.mat.uniforms.uBright, { value: 1.35 }, { value: 1, duration: 1.2, ease: 'power2.out' });
     hud.say('there it is');
+    sfx.chime();
+    const sp = stage.toScreen(p.g.getWorldPosition(new THREE.Vector3()));
+    hud.burst(sp.x, sp.y, { n: 18, spread: 110 });
+    const f = ROLLS[STILL].frames[frameIndex];
+    hud.toast(f.title, { kicker: `print ${k + 1} of ${n} · ${f.date}`, line: k === n - 1 ? 'the last one' : 'came up beautifully', hold: 1.8, sound: null });
     gsap.timeline()
       .to(p.g.position, { y: 1.3, duration: 0.7, ease: 'power2.out' })
       .to(p.g.rotation, { x: -0.25, duration: 0.7, ease: 'power2.out' }, '<')
@@ -429,6 +457,7 @@ export function trayScene(stage, app) {
       .to(p.g.rotation, { x: 0, y: 0, z: (Math.random() - 0.5) * 0.05, duration: 1.1, ease: 'power3.inOut' }, '<')
       .add(() => {
         const c = clip();
+        sfx.tick(0.55, 0.2);
         c.position.set(s.x, lineY - 0.06, s.z + 0.03);
         stage.world.add(c);
         gsap.from(c.position, { y: lineY + 0.4, duration: 0.3, ease: 'power2.out' });
@@ -454,6 +483,7 @@ export function trayScene(stage, app) {
     if (reading === e) return hangBack(e);
     gsap.killTweensOf(stage.rig);
     reading = e;
+    sfx.paper();
     e.moving = true;
     const cam = stage.camera;
     const dir = new THREE.Vector3();

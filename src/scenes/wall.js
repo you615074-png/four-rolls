@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { ROLLS, COPY, LETTER, NOTES } from '../content.js';
 import { hud } from '../hud.js';
+import { sfx } from '../sfx.js';
 import { pushpin } from '../props.js';
 import { FONT, canvas, canvasTexture, cardTexture, corkTexture, photoMaterial, photoTexture, rng } from '../util.js';
 import { selectedFrames } from './darkroom.js';
@@ -86,7 +87,7 @@ export function wallScene(stage, app) {
       map: cardTexture({ w: 320, h: 120, bg: '#f2ead6', lines: [{ text: `${NOTES[k % NOTES.length].date} · ${roll.frames[frameIndex].title.toLowerCase()}`, font: `36px ${FONT.hand}`, x: 18, y: 76, color: '#5a4636' }] }),
     }));
     add(tag, x + 0.55, y - 0.78, rot * 1.6, 0.06 + k * 0.004);
-    gsap.from(card.position, { z: W.z + 0.6, duration: 0.8, delay: 0.3 + k * 0.15, ease: 'power3.out' });
+    gsap.from(card.position, { z: W.z + 0.6, duration: 0.8, delay: 0.3 + k * 0.15, ease: 'power3.out', onComplete: () => sfx.tick(0.5, 0.18) });
   });
 
   // red string between the pins, with a little sag
@@ -102,6 +103,14 @@ export function wallScene(stage, app) {
   }
   void label;
   void poster;
+
+  // everything gathered on the way, pinned up as one stamp
+  const st = app.state.stats;
+  const bits = [`${picks.length} prints`];
+  if (st.developed) bits.push(`${st.developed} frames developed`);
+  if (st.notes) bits.push(`${st.notes} notes read`);
+  if (st.km) bits.push(`${st.km.toLocaleString('en')} km apart`);
+  gsap.delayedCall(1.8, () => hud.toast('look what we kept', { kicker: 'the wall', line: bits.join(' · '), hold: 3.2, sound: 'success' }));
 
   let opened = false;
   const open = () => {
@@ -128,6 +137,7 @@ export function letterScene(stage, app) {
   body.textContent = '';
   el.hidden = false;
   gsap.fromTo(el, { opacity: 0 }, { opacity: 1, duration: 0.8 });
+  sfx.paper();
   gsap.fromTo(el.querySelector('.letter-paper'), { y: 40, rotate: 3 }, { y: 0, rotate: -1.2, duration: 1.2, ease: 'power3.out' });
   gsap.fromTo(el.querySelector('.envelope'), { x: -60, rotate: -14 }, { x: 0, rotate: -8, duration: 1.2, ease: 'power3.out' });
 
@@ -137,6 +147,7 @@ export function letterScene(stage, app) {
   const type = () => {
     if (cancelled) return;
     body.textContent = text.slice(0, ++i);
+    if (text[i - 1] !== ' ' && text[i - 1] !== '\n') sfx.tick(0.45 + Math.random() * 0.15, 0.07);
     if (i < text.length) setTimeout(type, text[i - 1] === '\n' ? 180 : 26 + Math.random() * 30);
     else hud.say(null, { label: COPY.rewind, run: () => app.go('table', { reset: true }) });
   };

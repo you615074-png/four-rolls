@@ -4,6 +4,7 @@ import { tableScene, rollScene } from './scenes/rolls.js';
 import { lightboxScene, trayScene } from './scenes/darkroom.js';
 import { wallScene, letterScene } from './scenes/wall.js';
 import { FONT } from './util.js';
+import { sfx } from './sfx.js';
 
 const SCENES = {
   table: tableScene,
@@ -14,7 +15,7 @@ const SCENES = {
   letter: letterScene,
 };
 
-const freshState = () => ({ visited: new Set(), circled: new Set(), boxed: new Set() });
+const freshState = () => ({ visited: new Set(), circled: new Set(), boxed: new Set(), stats: { developed: 0, notes: 0, km: 0 } });
 
 async function boot() {
   // canvas textures draw text, so the web fonts have to be ready first
@@ -63,6 +64,17 @@ async function boot() {
   };
 
   hud.back.addEventListener('click', () => app.go('table'));
+  const sound = document.querySelector('#sound');
+  const paintSound = () => {
+    sound.textContent = sfx.muted ? 'sound off' : 'sound on';
+    sound.setAttribute('aria-pressed', String(!sfx.muted));
+  };
+  sound.addEventListener('click', () => {
+    sfx.toggle();
+    paintSound();
+    if (!sfx.muted) sfx.pop();
+  });
+  paintSound();
   window.darkroom = app; // handy from the console while building
 
   document.body.dataset.scene = 'table';

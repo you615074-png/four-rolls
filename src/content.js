@@ -21,6 +21,18 @@ const SLOW_NOTES = [
   'Placeholder. The light did this for ten minutes, then left.',
 ];
 
+// Where the far away slides were taken, and how far that was from the other one.
+const FAR_PLACES = [
+  { place: 'Placeholder City', km: 1284, line: 'you sent this one at 2 a.m. your time' },
+  { place: 'A harbour town', km: 862, line: 'the ferry was late, so you walked' },
+  { place: 'Somewhere north', km: 2310, line: 'snow in April, you said' },
+  { place: 'A train window', km: 517, line: 'halfway home, phone at 4%' },
+  { place: 'The old campus', km: 1093, line: 'same bench as last time' },
+  { place: 'An island', km: 3402, line: 'eleven hours apart, one sunset' },
+  { place: 'A rooftop', km: 745, line: 'you held the phone up to the sky' },
+  { place: 'A mountain road', km: 1876, line: 'no signal, so this came a day late' },
+];
+
 function frames(rollIndex, startMonth) {
   return Array.from({ length: 24 }, (_, i) => {
     const day = ((i * 7 + rollIndex * 5) % 27) + 1;
@@ -30,6 +42,7 @@ function frames(rollIndex, startMonth) {
       title: TITLES[(i + rollIndex * 6) % TITLES.length],
       photo: null,
       note: SLOW_NOTES[(i * 3 + rollIndex) % SLOW_NOTES.length],
+      ...FAR_PLACES[(i * 5 + rollIndex) % FAR_PLACES.length],
     };
   });
 }

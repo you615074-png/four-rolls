@@ -1,3 +1,5 @@
+import { sfx } from './sfx.js';
+
 const $ = (s) => document.querySelector(s);
 const gsap = window.gsap;
 
@@ -13,6 +15,8 @@ export const hud = {
   hintAction: $('#hint-action'),
   ctaEl: $('#cta'),
   picker: $('#picker'),
+  toastEl: $('#toast'),
+  fx: $('#fx'),
   fade: $('#fade'),
   zoom: $('#zoom'),
   zoomImg: $('#zoom img'),
@@ -82,6 +86,7 @@ export const hud = {
     el.classList.remove('pulse');
     void el.offsetWidth;
     el.classList.add('pulse');
+    sfx.pop();
     gsap.fromTo(el, { opacity: 0, y: 14, scale: 0.92 }, { opacity: 1, y: 0, scale: 1, duration: 0.7, ease: 'back.out(2)' });
   },
 
@@ -109,6 +114,39 @@ export const hud = {
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     this.fade.style.pointerEvents = '';
     await this.open(0.85);
+  },
+
+  /**
+   * A stamp that lands in the screen for a moment: a small reward.
+   * `kicker` sits above in mono, `line` below in italics.
+   */
+  toast(text, { kicker = '', line = '', hold = 2.2, sound = 'chime' } = {}) {
+    const el = this.toastEl;
+    el.querySelector('small').textContent = kicker;
+    el.querySelector('b').textContent = text;
+    el.querySelector('span').textContent = line;
+    el.hidden = false;
+    gsap.killTweensOf(el);
+    gsap.timeline()
+      .fromTo(el, { opacity: 0, scale: 1.5, rotate: -10, y: 0 }, { opacity: 1, scale: 1, rotate: -3, duration: 0.45, ease: 'back.out(2.2)' })
+      .to(el, { opacity: 0, y: -12, duration: 0.5, ease: 'power2.in', delay: hold, onComplete: () => (el.hidden = true) });
+    if (sound) sfx[sound]();
+  },
+
+  /** A puff of warm sparks at a client-space point. */
+  burst(x, y, { n = 16, spread = 90, color = '255,190,140' } = {}) {
+    const r = this.fx.getBoundingClientRect();
+    for (let i = 0; i < n; i++) {
+      const d = document.createElement('i');
+      const size = 3 + Math.random() * 5;
+      d.style.cssText = `left:${x - r.left}px;top:${y - r.top}px;width:${size}px;height:${size}px;background:radial-gradient(circle, rgba(${color},1), rgba(${color},0) 70%)`;
+      this.fx.appendChild(d);
+      const a = Math.random() * Math.PI * 2, dist = spread * (0.35 + Math.random() * 0.65);
+      gsap.to(d, {
+        x: Math.cos(a) * dist, y: Math.sin(a) * dist - 20, scale: 0.3, opacity: 0,
+        duration: 0.7 + Math.random() * 0.6, ease: 'power2.out', onComplete: () => d.remove(),
+      });
+    }
   },
 
   /**
