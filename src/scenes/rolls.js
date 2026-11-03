@@ -37,7 +37,7 @@ function tickMark() {
 export function tableScene(stage, app) {
   const opened = app.state.visited;
   hud.set({ scene: 'SCENE 04 · THE ROLLS', count: `${opened.size} OF 4 OPENED`, title: true });
-  stage.view({ pos: [0.3, 9.4, 6.6], target: [0.3, 0, 0.5], fov: 34 });
+  stage.view({ pos: [0.3, 8.2, 5.6], target: [0.3, 0, 0.35], fov: 34 });
   stage.light({ pos: [0.2, 9, 3.4], target: [0.3, 0, 0.3], intensity: 150, angle: 0.72 });
   stage.parallaxAmount = 0.18;
 
@@ -98,10 +98,8 @@ export function tableScene(stage, app) {
   stage.world.add(p1, p2);
 
   if (!opened.size) invite = stage.anchor(new THREE.Vector3(-0.75, 0.9, 1.35), 'tap a roll to open it', { dy: -26 });
-  const canGo = opened.has(STILL) || opened.size === ROLLS.length;
-  hud.say(opened.size && !opened.has(STILL) ? COPY.stillDecides : COPY.pickOne);
-  const n = app.state.circled.size;
-  if (canGo) hud.cta(COPY.toDarkroom, () => app.go('lightbox'), n ? `${n} frame${n > 1 ? 's' : ''} to print` : 'the light box is on');
+  hud.say(COPY.pickOne);
+  if (opened.size === ROLLS.length) hud.cta(COPY.toDarkroom, () => app.go('lightbox'));
 }
 
 /* ---------- a strip standing on the table, coming out of its can ---------- */
@@ -712,9 +710,9 @@ function stillDeck(stage, app, index) {
   const narrow = stage.camera.aspect < 1.15;
   const homes = narrow
     ? { box: new THREE.Vector3(-1.15, 0, 1.75), print: new THREE.Vector3(1.15, 0, 1.75), deck: new THREE.Vector3(0, 0, -1.0) }
-    : { box: new THREE.Vector3(-2.75, 0, 0.55), print: new THREE.Vector3(2.75, 0, 0.55), deck: new THREE.Vector3(0, 0, 0.45) };
-  const reach = narrow ? 0.75 : 1.25;
-  stage.view(narrow ? { pos: [0, 6.6, 2.6], target: [0, 0, 0.35], fov: 40 } : { pos: [0, 6.6, 4.3], target: [0, 0, 0.45], fov: 36 });
+    : { box: new THREE.Vector3(-2.3, 0, 0.5), print: new THREE.Vector3(2.3, 0, 0.5), deck: new THREE.Vector3(0, 0, 0.42) };
+  const reach = narrow ? 0.75 : 1.1;
+  stage.view(narrow ? { pos: [0, 6.6, 2.6], target: [0, 0, 0.35], fov: 40 } : { pos: [0, 5.7, 3.7], target: [0, 0, 0.45], fov: 36 });
   stage.light({ pos: [0.2, 8.5, 2.6], target: [0, 0, 0.3], intensity: 160, angle: 0.8 });
   stage.parallaxAmount = 0.08;
   gsap.from(stage.rig, { py: 8.2, pz: 5.4, duration: 1.4, ease: 'power3.out' });
@@ -760,8 +758,6 @@ function stillDeck(stage, app, index) {
     hud.setCount(`${n} OF ${MAX_PRINTS} TO PRINT · ${deck.length} LEFT`);
     const t = top();
     hud.setCaption(t ? { small: `${t.frame.date} · FRAME ${frameNo(t.i)}`, title: t.frame.title } : null);
-    if (n) hud.cta(COPY.toDarkroom, () => app.go('lightbox'), `${n} to print`);
-    else hud.cta(null);
     if (!t) hud.say(n ? 'all sorted. tap a heap to take one back' : 'nothing to print? tap the box to take one back');
   };
   sync();
@@ -799,7 +795,7 @@ function stillDeck(stage, app, index) {
       const sp = stage.toScreen(c.g.getWorldPosition(new THREE.Vector3()));
       hud.burst(sp.x, sp.y, { n: 12, spread: 70, color: '255,120,90' });
       const k = piles.print.length;
-      if (k === MAX_PRINTS) hud.toast('six chosen', { kicker: 'still us', line: 'the paper is ready, to the darkroom', sound: 'success' });
+      if (k === MAX_PRINTS) hud.toast('six chosen', { kicker: 'still us', line: 'they wait for the darkroom', sound: 'success' });
       else if (k === 1) hud.toast('the first keeper', { kicker: 'still us', line: `up to ${MAX_PRINTS}, choose slowly`, sound: 'chime' });
     });
     if (!deck.length) gsap.delayedCall(0.6, () => hud.toast('all sorted', { kicker: 'still us · 24 frames', line: `${piles.print.length} to print, the rest kept safe`, sound: 'success' }));

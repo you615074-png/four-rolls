@@ -13,7 +13,8 @@ export const hud = {
   hint: $('#hint'),
   hintText: $('#hint-text'),
   hintAction: $('#hint-action'),
-  ctaEl: $('#cta'),
+  ctaEl: $('#hint-cta'),
+  side: $('#side-note'),
   picker: $('#picker'),
   toastEl: $('#toast'),
   fx: $('#fx'),
@@ -58,18 +59,22 @@ export const hud = {
       }
       gsap.to(this.hint, { opacity: 1, duration: 0.45 });
     };
-    if (this.hintText.textContent === (text ?? '') && !!action === !this.hintAction.hidden) {
+    // compare with what was last asked for, not what is on screen mid-fade
+    const key = `${text ?? ''}|${action?.label ?? ''}`;
+    if (this.sayKey === key) {
       if (action) this.hintAction.onclick = action.run;
       return;
     }
+    this.sayKey = key;
+    gsap.killTweensOf(this.hint);
     gsap.to(this.hint, { opacity: 0, duration: 0.2, onComplete: swap });
   },
 
   /**
-   * The one big "next step" button inside the screen (to the darkroom, print them,
-   * to the wall). It arrives with a pulse so it can't be missed.
+   * The next step, written by hand in the hint bar next to the hint, as in the
+   * original ("pick one   to the darkroom →"). It glows and nudges so it's seen.
    */
-  cta(label, run, sub = '') {
+  cta(label, run) {
     const el = this.ctaEl;
     if (!label) {
       el.hidden = true;
@@ -77,8 +82,7 @@ export const hud = {
       el.dataset.label = '';
       return;
     }
-    el.querySelector('b').textContent = label;
-    el.querySelector('small').textContent = sub;
+    el.querySelector('span').textContent = label;
     el.onclick = run;
     if (el.dataset.label === label && !el.hidden) return;
     el.dataset.label = label;
@@ -87,7 +91,24 @@ export const hud = {
     void el.offsetWidth;
     el.classList.add('pulse');
     sfx.pop();
-    gsap.fromTo(el, { opacity: 0, y: 14, scale: 0.92 }, { opacity: 1, y: 0, scale: 1, duration: 0.7, ease: 'back.out(2)' });
+    gsap.fromTo(el, { opacity: 0, x: -10 }, { opacity: 1, x: 0, duration: 0.7, ease: 'power3.out' });
+  },
+
+  /** A handwritten note inside the screen, e.g. "all dry, → to the wall". */
+  sideNote(big, small, run) {
+    const el = this.side;
+    if (!big) {
+      el.hidden = true;
+      el.onclick = null;
+      return;
+    }
+    el.querySelector('b').textContent = big;
+    el.querySelector('em').textContent = small;
+    el.onclick = run;
+    if (!el.hidden) return;
+    el.hidden = false;
+    sfx.pop();
+    gsap.fromTo(el, { opacity: 0, x: -12 }, { opacity: 1, x: 0, duration: 0.9, ease: 'power2.out' });
   },
 
   /* Scene changes close an iris on the point that was tapped, then open it from the middle. */

@@ -112,29 +112,16 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 }
 .hud-back:hover { color: var(--ink); }
 
-.cta {
-  position: absolute; z-index: 8; right: 30px; bottom: 26px;
-  display: inline-flex; align-items: center; gap: 14px;
-  padding: 12px 22px 12px 26px; border-radius: 999px;
-  color: #fff3ea; text-align: left;
-  background: linear-gradient(135deg, #d9432f, #a8261a);
-  box-shadow: 0 0 0 1px rgba(255, 190, 160, 0.35) inset, 0 10px 34px rgba(220, 60, 35, 0.45), 0 0 80px rgba(255, 80, 40, 0.25);
-  transition: transform 0.25s ease, box-shadow 0.25s ease;
+.side-note {
+  position: absolute; z-index: 7; left: 6%; top: 56%;
+  display: flex; flex-direction: column; align-items: flex-start; text-align: left;
+  font-family: var(--script); color: #ff9c8a; transform: rotate(-4deg);
+  text-shadow: 0 0 18px rgba(255, 80, 50, 0.55);
 }
-.cta:hover { transform: translateY(-2px); box-shadow: 0 0 0 1px rgba(255, 200, 170, 0.5) inset, 0 14px 40px rgba(230, 70, 40, 0.6), 0 0 100px rgba(255, 90, 50, 0.35); }
-.cta-text { display: flex; flex-direction: column; gap: 3px; }
-.cta small { font: 500 9px/1 var(--mono); letter-spacing: 0.18em; text-transform: uppercase; color: rgba(255, 228, 214, 0.75); }
-.cta small:empty { display: none; }
-.cta b { font: 400 28px/1 var(--script); }
-.cta i { font-style: normal; font-size: 22px; transition: transform 0.25s; animation: nudge 1.6s ease-in-out infinite; }
-.cta:hover i { transform: translateX(4px); }
-.cta::after {
-  content: ''; position: absolute; inset: -2px; border-radius: inherit; pointer-events: none;
-  border: 2px solid rgba(255, 120, 90, 0.7); opacity: 0;
-}
-.cta.pulse::after { animation: ring 1.6s ease-out 0.3s 3; }
-@keyframes ring { 0% { opacity: 0.9; transform: scale(1); } 100% { opacity: 0; transform: scale(1.35, 1.7); } }
-@keyframes nudge { 50% { translate: 5px 0; } }
+.side-note b { font-weight: 400; font-size: 40px; line-height: 1; }
+.side-note span { font-size: 28px; margin-left: 26px; }
+.side-note i { font-style: normal; display: inline-block; animation: nudge 1.6s ease-in-out infinite; }
+.side-note:hover { color: #ffc2b4; }
 
 /* ---------- rewards: stamps and sparks ---------- */
 
@@ -155,7 +142,7 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .fx i { position: absolute; border-radius: 50%; translate: -50% -50%; mix-blend-mode: screen; }
 
 .sound {
-  position: absolute; right: 22px; top: 50%; translate: 0 -50%;
+  position: absolute; z-index: 7; right: 34px; bottom: 26px;
   font: 500 10px/1 var(--mono); letter-spacing: 0.18em; text-transform: uppercase;
   color: var(--ink-dim); padding: 8px 0; transition: color 0.2s;
 }
@@ -213,6 +200,23 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   padding: 0 16px;
 }
 .hint-action { font: 400 22px/1 var(--script); color: #f08a7c; display: inline-flex; align-items: center; gap: 6px; }
+/* the next step: same hand as the hint, but brighter, glowing and nudging */
+.hint-cta {
+  position: relative; display: inline-flex; align-items: center; gap: 8px;
+  font: 400 27px/1 var(--script); color: #ffb3a1;
+  text-shadow: 0 0 14px rgba(255, 86, 56, 0.75), 0 0 2px rgba(255, 140, 110, 0.9);
+  transition: color 0.2s;
+}
+.hint-cta:hover { color: #ffd6cb; }
+.hint-cta i { font-style: normal; display: inline-block; animation: nudge 1.4s ease-in-out infinite; }
+.hint-cta::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: -5px; height: 2px; border-radius: 2px;
+  background: linear-gradient(90deg, transparent, #ff6a4a, transparent);
+  transform: scaleX(0); transform-origin: left;
+}
+.hint-cta.pulse::after { animation: sweep 1.8s ease-in-out 0.4s 3; }
+@keyframes sweep { 0% { transform: scaleX(0); opacity: 1; } 60% { transform: scaleX(1); opacity: 1; } 100% { transform: scaleX(1); opacity: 0; } }
+@keyframes nudge { 50% { translate: 6px 0; } }
 .hint-action i { font-style: normal; transition: transform 0.25s; }
 .hint-action:hover i { transform: translateX(6px); }
 
@@ -271,11 +275,12 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   .hint-action { font-size: 19px; }
   .envelope { left: 6%; bottom: 6%; }
   .letter-paper { margin-left: 0; padding: 30px 26px; }
-  .sound { top: auto; bottom: 6px; translate: none; right: 14px; font-size: 8px; }
+  .sound { right: 18px; bottom: 16px; font-size: 8px; }
+  .hint-cta { font-size: 21px; }
+  .side-note { left: 5%; top: 60%; }
+  .side-note b { font-size: 32px; }
   .toast { bottom: auto; top: 13%; padding: 10px 18px 12px; }
   .toast b { font-size: 26px; }
-  .cta { right: 14px; bottom: 14px; padding: 10px 16px 10px 20px; }
-  .cta b { font-size: 23px; }
   .picker { padding: 10px; }
   .picker-card { padding: 18px 14px; }
   .picker-grid { grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 10px; }

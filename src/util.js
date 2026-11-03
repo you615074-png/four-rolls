@@ -335,6 +335,8 @@ void main() {
 
   float n = noise(vUv * 7.0 + uTime * 0.07) * 0.45 + noise(vUv * 31.0) * 0.12;
   float k = clamp((uDev * 1.7 - n) * (0.9 + (1.0 - l) * 0.9), 0.0, 1.0);
+  // a crop wider than the photo leaves a white paper border, not stretched edge pixels
+  if (any(lessThan(vUv, vec2(0.0))) || any(greaterThan(vUv, vec2(1.0)))) k = 0.0;
   vec3 col = mix(pow(uPaper, vec3(1.0 / 2.2)), img, k);
   col = mix(col, vec3(1.0, 0.97, 0.9), uFlash);
 

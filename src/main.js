@@ -49,6 +49,7 @@ async function boot() {
         cleanup?.();
         cleanup = null;
         hud.cta(null);
+        hud.sideNote(null);
         hud.picker.hidden = true;
         hud.zoom.hidden = true;
         hud.say(null);

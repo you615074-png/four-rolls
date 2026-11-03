@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { ROLLS, COPY, NOTES } from '../content.js';
 import { hud } from '../hud.js';
 import { sfx } from '../sfx.js';
+import { SET, buildDarkroom } from '../darkroomSet.js';
 import { FILM, bottle, clip, clothesline, lightBox, loupe, paperStack, pen, stripSegment, tray } from '../props.js';
 import { FONT, canvas, canvasTexture, cardTexture, damp, glowTexture, photoMaterial, photoTexture, photoThumb, photoURL, wrapText } from '../util.js';
 
@@ -42,7 +43,7 @@ export function lightboxScene(stage, app) {
   const roll = ROLLS[STILL];
   hud.set({ scene: 'SCENE 05 · THE LIGHT BOX', count: `0 OF ${picks.length} SEEN`, back: true });
   stage.parallaxAmount = 0.12;
-  const home = { px: 0.2, py: 6.6, pz: 4.4, tx: 0.2, ty: 0, tz: -0.5, fov: 36 };
+  const home = { px: 0.2, py: 6.0, pz: 3.9, tx: 0.2, ty: 0, tz: -0.35, fov: 36 };
   stage.view({ pos: [home.px, home.py, home.pz], target: [home.tx, home.ty, home.tz], fov: home.fov });
   stage.light({ pos: [0.6, 8, 1], target: [0.2, 0, -1], intensity: 90, angle: 0.8, hemi: 0.45 });
   gsap.from(stage.rig, { py: 7.6, pz: 5.4, duration: 1.4, ease: 'power3.out' });
@@ -158,7 +159,7 @@ export function lightboxScene(stage, app) {
   const prompt = () => {
     hud.setCount(`${seen.size} OF ${picks.length} SEEN`);
     hud.say(COPY.lightbox, { label: `${COPY.swap} ↻`, run: swap });
-    hud.cta(COPY.printThem, () => app.go('tray'), `${picks.length} sheet${picks.length > 1 ? 's' : ''} of paper`);
+    hud.cta(COPY.printThem, () => app.go('tray'));
   };
 
   // pick different negatives: the old strips slide off the glass, the new ones slide on
@@ -241,21 +242,36 @@ function noteTexture(frameIndex, k) {
   return canvasTexture(c);
 }
 
+/** A wet print: curls a little at the bottom, shines while wet, dries matte. */
 function makePrint(frameIndex, k) {
   const g = new THREE.Group();
   const roll = ROLLS[STILL];
   const W = 0.9, H = 1.2;
-  const front = new THREE.Mesh(new THREE.PlaneGeometry(W, H), photoMaterial(photoTexture(STILL, frameIndex, roll.frames[frameIndex]), { mono: 1, dev: 0, paper: '#f1ece0' }));
-  front.material.uniforms.uCrop.value.set(-0.06, -0.05, 1.12, 1.1);
-  const back = new THREE.Mesh(new THREE.PlaneGeometry(W, H), new THREE.MeshBasicMaterial({ map: noteTexture(frameIndex, k), color: '#e4ddd0' }));
+  const curl = (geo, sign, off) => {
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const t = (H / 2 - pos.getY(i)) / H; // 0 at the peg, 1 at the bottom edge
+      pos.setZ(i, sign * (0.07 * t * t + 0.012 * Math.sin(pos.getX(i) * 3.4) * t) + off);
+    }
+    geo.computeVertexNormals();
+    return geo;
+  };
+  const front = new THREE.Mesh(
+    curl(new THREE.PlaneGeometry(W, H, 6, 14), 1, 0.0015),
+    photoMaterial(photoTexture(STILL, frameIndex, roll.frames[frameIndex]), { mono: 1, dev: 0, paper: '#f1ece0' }),
+  );
+  front.material.uniforms.uCrop.value.set(-0.07, -0.06, 1.14, 1.16);
+  const back = new THREE.Mesh(curl(new THREE.PlaneGeometry(W, H, 6, 14), -1, 0.0015), new THREE.MeshStandardMaterial({ map: noteTexture(frameIndex, k), color: '#e9e2d6', roughness: 0.75 }));
   back.rotation.y = Math.PI;
-  back.position.z = -0.0035;
-  const edge = new THREE.Mesh(new THREE.BoxGeometry(W, H, 0.002), new THREE.MeshStandardMaterial({ color: '#efe9dc' }));
-  edge.position.z = -0.0015;
-  front.position.z = 0.001;
-  g.add(edge, front, back);
-  g.traverse((m) => m.isMesh && (m.castShadow = true));
-  return { g, front, mat: front.material };
+  // the wet sheen: only reflections are added on top of the print, and they fade as it dries
+  const sheen = new THREE.Mesh(
+    curl(new THREE.PlaneGeometry(W, H, 6, 14), 1, 0.003),
+    new THREE.MeshStandardMaterial({ color: '#000000', roughness: 0.12, metalness: 0, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, envMapIntensity: 1.6 }),
+  );
+  g.add(front, back, sheen);
+  front.castShadow = back.castShadow = true;
+  back.receiveShadow = true;
+  return { g, front, mat: front.material, sheen: sheen.material, W, H };
 }
 
 export function trayScene(stage, app) {
@@ -263,56 +279,36 @@ export function trayScene(stage, app) {
   const n = picks.length;
   hud.set({ scene: 'SCENE 06 · THE TRAY', count: `0 OF ${n} DRY`, back: true });
   hud.say(COPY.trayStart);
-  stage.parallaxAmount = 0.08;
-  // the camera looks into the tray while a print develops, and up at the line when it hangs
-  const trayView = { pos: [0.1, 5.3, 0.55], target: [0.05, 0, -2.85], fov: 40 };
-  const lineView = { pos: [0.3, 4.6, 3.3], target: [0.3, 1.25, -3.4], fov: 38 };
-  stage.view(trayView);
-  stage.light({ pos: [0.5, 7.5, -1.2], target: [0.3, 0, -3.3], intensity: 70, angle: 0.75, hemi: 0.22 });
-  gsap.from(stage.rig, { py: 6.4, pz: 1.6, duration: 1.4, ease: 'power3.out' });
+  stage.parallaxAmount = 0.06;
+  // one fixed view, as in the original: the line across the top, the tray below
+  stage.view({ pos: [0.3, 4.3, 3.0], target: [0.3, 1.55, -3.6], fov: 40 });
+  stage.light({ pos: [1.2, 7.2, -0.2], target: [0.3, 0, -3.4], intensity: 38, angle: 0.7, hemi: 0.12 });
+  stage.hemi.color.set('#ff9a80');
+  gsap.from(stage.rig, { py: 5.0, pz: 4.0, duration: 1.4, ease: 'power3.out' });
 
-  const { tray: t, stack } = darkroomProps(stage);
+  const set = buildDarkroom(stage);
+  const { tray: t, stack, timer: clock } = set;
+  const sheet = stack.userData.sheet;
   // on a narrow screen the paper sits in front of the tray so it stays in view
-  if (stage.camera.aspect < 1.15) stack.position.set(-0.75, 0, -1.25);
+  if (stage.camera.aspect < 1.15) stack.position.set(-0.6, 0, -1.2);
 
-  // the safelight: a red bulb on the wall that colours the whole room
-  const safe = new THREE.Group();
-  const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.12, 20, 14), new THREE.MeshBasicMaterial({ color: new THREE.Color(2.4, 0.35, 0.18), toneMapped: false }));
-  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: '#ff4a26', transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
-  halo.scale.setScalar(2.2);
-  const red = new THREE.PointLight('#ff3a1a', 22, 12, 1.4);
-  safe.add(bulb, halo, red);
-  safe.position.set(-2.4, 3.6, -4.9);
-  stage.world.add(safe);
-
-  // a thin layer of developer over whatever is in the tray, with a moving glint
-  const surface = new THREE.Mesh(
-    new THREE.PlaneGeometry(3.15, 2.15),
-    new THREE.MeshStandardMaterial({ color: '#4a2a18', transparent: true, opacity: 0.32, roughness: 0.06, metalness: 0.2, depthWrite: false }),
-  );
-  surface.rotation.x = -Math.PI / 2;
-  surface.position.y = t.liquidY + 0.03;
-  t.group.add(surface);
-  const glint = new THREE.Mesh(
-    new THREE.PlaneGeometry(1.4, 0.5),
-    new THREE.MeshBasicMaterial({ map: glowTexture(), color: '#ff9a70', transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }),
-  );
-  glint.rotation.x = -Math.PI / 2;
-  glint.position.y = t.liquidY + 0.035;
-  t.group.add(glint);
-
-  const lineY = 3.05, lineZ = -4.6;
-  const line = clothesline(10);
-  line.position.set(0.3, lineY, lineZ);
-  stage.world.add(line);
-
+  const { lineZ } = SET;
   const spacing = 1.18;
-  const slot = (k) => new THREE.Vector3(0.3 + (k - (n - 1) / 2) * spacing, lineY - 0.66, lineZ + 0.02);
+  const slot = (k) => {
+    const x = 0.3 + (k - (n - 1) / 2) * spacing;
+    return new THREE.Vector3(x, set.lineAt(x) - 0.68, lineZ + 0.03);
+  };
   const hung = [];
   let busy = false;
   let reading = null;
   let bath = null; // the sheet currently in the developer
   const slosh = { tilt: 0, to: 0, wave: 0, wv: 0, stir: 0 };
+
+  // the bath surface: a grid of vertices nudged by the slosh and by ripples
+  const lp = t.liquid.geometry.attributes.position;
+  const rest = Float32Array.from(lp.array);
+  const ripples = [];
+  const ripple = (x, z, amp = 1) => ripples.push({ x, z, t: 0, amp });
 
   let doneOnce = false;
   const updateHint = () => {
@@ -323,47 +319,51 @@ export function trayScene(stage, app) {
     hud.say(COPY.readBack);
     if (!doneOnce) {
       doneOnce = true;
-      gsap.delayedCall(1.2, () => hud.toast('all dry', { kicker: `${n} print${n > 1 ? "s" : ""} on the line`, line: 'tap one to read the back', sound: 'success' }));
+      gsap.delayedCall(1.2, () => hud.toast('all dry', { kicker: `${n} print${n > 1 ? 's' : ''} on the line`, line: 'tap one to read the back', sound: 'success' }));
     }
-    hud.cta(COPY.toWall, () => app.go('wall'), COPY.allDry.replace(',', ''));
+    hud.sideNote(COPY.allDry, COPY.toWall, () => app.go('wall'));
   };
 
-  const stackGuide = stage.anchor(new THREE.Vector3(stack.position.x, 0.25, stack.position.z), 'take a sheet', { dy: -18 });
+  const stackGuide = stage.anchor(new THREE.Vector3(stack.position.x, 0.3, stack.position.z), 'take a sheet', { dy: -18 });
   let rockGuide = null;
 
   const develop = () => {
     if (busy || hung.length >= n || reading) return;
     busy = true;
     stackGuide.hide();
-    if (stage.rig.py !== trayView.pos[1]) stage.view(trayView, 1.1);
     const k = hung.length;
     const frameIndex = picks[k];
     const p = makePrint(frameIndex, k);
+    p.sheen.opacity = 1;
     stage.world.add(p.g);
-    p.g.position.copy(stack.position).setY(0.14);
-    p.g.rotation.set(-Math.PI / 2, 0, 0.12);
+    const from = stack.localToWorld(new THREE.Vector3(0, 0.24, 0));
+    p.g.position.copy(from);
+    p.g.rotation.set(-Math.PI / 2, 0, 0.1);
     sfx.paper();
     hud.say(COPY.wait);
     hud.setCount(`PRINT ${k + 1} OF ${n} · 0%`);
-    const inTray = t.group.position.clone().setY(t.liquidY + 0.005);
+    const inTray = t.group.position.clone().setY(t.floorY + 0.02);
     gsap.timeline({
       onComplete: () => {
         bath = { p, k, frameIndex, inTray, progress: 0 };
-        if (!k) rockGuide = stage.anchor(new THREE.Vector3(t.group.position.x, 0.4, t.group.position.z + 1.2), '⟵ drag to rock ⟶', { dy: 10 });
+        if (!k) rockGuide = stage.anchor(new THREE.Vector3(t.group.position.x, 0.4, t.group.position.z + 1.25), '⟵ drag to rock ⟶', { dy: 14 });
       },
     })
-      .to(p.g.position, { x: (stack.position.x + inTray.x) / 2, y: 1.1, z: (stack.position.z + inTray.z) / 2, duration: 0.55, ease: 'power2.out' })
-      .to(p.g.position, { x: inTray.x, y: inTray.y, z: inTray.z, duration: 0.6, ease: 'power2.in' })
-      .to(p.g.rotation, { z: -0.04, duration: 1.1, ease: 'power2.inOut' }, 0)
+      .to(p.g.position, { x: (from.x + inTray.x) / 2, y: 0.9, z: (from.z + inTray.z) / 2, duration: 0.5, ease: 'power2.out' })
+      .to(p.g.position, { x: inTray.x, y: t.liquidY + 0.01, z: inTray.z, duration: 0.45, ease: 'power2.in' })
       .add(() => {
-        // the sheet slaps the surface and sends a wave across
+        // the sheet slaps the surface, then sinks to the ribs
         sfx.splash();
         slosh.wv += 2.4;
         slosh.stir = 1;
-      }, 1.1);
+        ripple(0, 0, 1.6);
+      })
+      .to(p.g.position, { y: inTray.y, duration: 0.6, ease: 'power2.out' })
+      .to(p.g.rotation, { z: -0.04, duration: 1.4, ease: 'power2.inOut' }, 0);
   };
 
   // rocking: drag side to side. The faster you rock, the faster the image comes up.
+  let lastSlosh = 0;
   const rock = (d) => {
     if (!bath) return;
     rockGuide?.hide();
@@ -373,39 +373,108 @@ export function trayScene(stage, app) {
     if (now - lastSlosh > 380 && Math.abs(d) > 0.004) {
       lastSlosh = now;
       sfx.splash(0.05 + Math.min(0.1, Math.abs(d)));
+      ripple(Math.sign(d) * -1.2, (Math.random() - 0.5) * 0.8, 0.6);
     }
   };
-  let lastSlosh = 0;
   stage.dragHandler = { label: null, move: (dx) => rock(dx * 0.0011) };
+
+  // water dropping off a wet print onto the bench leaves a spot that slowly dries
+  const spots = [];
+  const spotMat = new THREE.MeshStandardMaterial({ color: '#000', roughness: 0.05, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, envMapIntensity: 2 });
+  const fall = (from, floorY, onLand) => {
+    const drop = new THREE.Mesh(new THREE.SphereGeometry(0.018, 10, 8), new THREE.MeshPhysicalMaterial({ color: '#cbb8a0', roughness: 0.02, clearcoat: 1, transparent: true, opacity: 0.7 }));
+    drop.scale.y = 1.5;
+    drop.position.copy(from);
+    stage.world.add(drop);
+    gsap.to(drop.position, { y: floorY, duration: Math.sqrt(Math.max(0.02, from.y - floorY) / 4.9), ease: 'power2.in', onComplete: () => {
+      stage.world.remove(drop);
+      drop.geometry.dispose();
+      drop.material.dispose();
+      onLand?.(drop.position);
+    } });
+  };
+  const drip = (p, floorY = t.liquidY) => {
+    const from = p.g.localToWorld(new THREE.Vector3((Math.random() - 0.5) * p.W * 0.8, -p.H / 2, 0.07));
+    fall(from, floorY, (at) => {
+      if (floorY === t.liquidY) {
+        slosh.wv += 0.2;
+        ripple(at.x - t.group.position.x, at.z - t.group.position.z, 0.5);
+        return;
+      }
+      const m = new THREE.Mesh(new THREE.CircleGeometry(0.05 + Math.random() * 0.05, 16), spotMat.clone());
+      m.rotation.x = -Math.PI / 2;
+      m.position.set(at.x, 0.003, at.z);
+      stage.world.add(m);
+      spots.push({ m, life: 1 });
+    });
+  };
 
   stage.onFrame((dt, time) => {
     for (const e of hung) {
-      if (e.moving || reading === e) continue;
-      e.sway = damp(e.sway ?? 0, e.hover ? 0.07 : 0, 6, dt);
-      e.g.rotation.z = e.home.rot.z + Math.sin(time * 1.3 + e.k) * 0.012 + Math.sin(time * 9) * e.sway * 0.4;
+      if (!e.moving && reading !== e) {
+        e.sway = damp(e.sway ?? 0, e.hover ? 0.07 : 0, 6, dt);
+        e.g.rotation.z = e.home.rot.z + Math.sin(time * 1.3 + e.k) * 0.012 + Math.sin(time * 9) * e.sway * 0.4;
+        e.g.rotation.x = Math.sin(time * 0.9 + e.k * 2) * 0.03;
+      }
+      // drying: the shine goes, the drips slow down and stop
+      e.wet = Math.max(0, e.wet - dt / 18);
+      e.sheen.opacity = e.wet;
+      e.sheen.roughness = 0.12 + (1 - e.wet) * 0.5;
+      e.nextDrip -= dt;
+      if (e.wet > 0.25 && e.nextDrip < 0 && reading !== e) {
+        e.nextDrip = 0.5 + (1 - e.wet) * 3 + Math.random();
+        drip(e, 0);
+      }
     }
+    for (let i = spots.length - 1; i >= 0; i--) {
+      const s = spots[i];
+      s.life -= dt / 14;
+      s.m.material.opacity = Math.max(0, s.life);
+      if (s.life <= 0) {
+        stage.world.remove(s.m);
+        s.m.geometry.dispose();
+        s.m.material.dispose();
+        spots.splice(i, 1);
+      }
+    }
+
     // tray tilt eases back to level; the liquid lags behind it like a spring
     slosh.to = damp(slosh.to, 0, 2.5, dt);
     slosh.tilt = damp(slosh.tilt, slosh.to, 9, dt);
     t.group.rotation.z = slosh.tilt;
     slosh.wv += (-slosh.wave * 30 - slosh.wv * 2.2 + (slosh.to - slosh.tilt) * 40) * dt;
     slosh.wave += slosh.wv * dt;
-    surface.rotation.y = slosh.wave * 0.04;
-    surface.position.y = t.liquidY + 0.03 + slosh.wave * 0.006;
-    glint.position.x = -0.6 + Math.sin(time * 0.6) * 0.3 + slosh.wave * 0.5;
-    glint.position.z = -0.3 + Math.cos(time * 0.45) * 0.2;
-    glint.material.opacity = 0.16 + Math.min(0.3, Math.abs(slosh.wv) * 0.05);
     slosh.stir = damp(slosh.stir, 0, 1.6, dt);
-    red.intensity = 22 + Math.sin(time * 3.3) * 0.6;
+    for (let i = ripples.length - 1; i >= 0; i--) {
+      ripples[i].t += dt;
+      if (ripples[i].t > 2.2) ripples.splice(i, 1);
+    }
+    for (let i = 0; i < lp.count; i++) {
+      const x = rest[i * 3], y = rest[i * 3 + 1]; // plane space: y is -z in the tray
+      let h = slosh.wave * x * 0.012 + Math.sin(x * 2.1 + time * 1.3) * Math.cos(y * 2.7 - time) * 0.0025;
+      for (const r of ripples) {
+        const d = Math.hypot(x - r.x, y + r.z);
+        const front = r.t * 1.4;
+        h += Math.sin((d - front) * 14) * Math.exp(-((d - front) ** 2) * 14) * 0.012 * r.amp * (1 - r.t / 2.2);
+      }
+      lp.setZ(i, h);
+    }
+    lp.needsUpdate = true;
+    t.liquid.geometry.computeVertexNormals();
+    set.safe.light.intensity = 30 + Math.sin(time * 3.3) * 0.5;
 
-    if (!bath) return;
+    if (!bath) {
+      clock.set(0);
+      return;
+    }
     const b = bath;
     b.progress = Math.min(1, b.progress + (dt / 7) * (1 + slosh.stir));
+    clock.set(b.progress * 60);
     b.p.mat.uniforms.uDev.value = b.progress;
     b.p.mat.uniforms.uTime.value = time;
     b.p.g.position.x = b.inTray.x - slosh.wave * 0.05;
-    b.p.g.position.y = b.inTray.y + Math.sin(time * 2.4) * 0.004 + slosh.tilt * 0.4;
-    b.p.g.rotation.z = -0.04 + Math.sin(time * 1.7) * 0.015 + slosh.wave * 0.03;
+    b.p.g.position.y = b.inTray.y + slosh.tilt * 0.4;
+    b.p.g.rotation.z = -0.04 + Math.sin(time * 1.7) * 0.012 + slosh.wave * 0.03;
     hud.setCount(`PRINT ${b.k + 1} OF ${n} · ${Math.round(b.progress * 100)}%`);
     if (b.progress >= 1) {
       bath = null;
@@ -422,22 +491,10 @@ export function trayScene(stage, app) {
     },
   });
 
-  // lifted out with tongs, dripping, then pegged on the line
-  const drip = (p) => {
-    const drop = new THREE.Mesh(new THREE.SphereGeometry(0.022, 10, 8), new THREE.MeshStandardMaterial({ color: '#3a2015', roughness: 0.1, metalness: 0.2 }));
-    const at = p.g.localToWorld(new THREE.Vector3((Math.random() - 0.5) * 0.8, -0.6, 0));
-    drop.position.copy(at);
-    stage.world.add(drop);
-    gsap.to(drop.position, { y: t.liquidY, duration: Math.sqrt(Math.max(0.05, at.y - t.liquidY) / 4.9), ease: 'power2.in', onComplete: () => {
-      stage.world.remove(drop);
-      drop.geometry.dispose();
-      drop.material.dispose();
-      slosh.wv += 0.25;
-    } });
-  };
-
+  // lifted out with the tongs, held to drain, then pegged on the line
   const hangUp = ({ p, k, frameIndex }) => {
     const s = slot(k);
+    rockGuide?.hide();
     gsap.fromTo(p.mat.uniforms.uBright, { value: 1.35 }, { value: 1, duration: 1.2, ease: 'power2.out' });
     hud.say('there it is');
     sfx.chime();
@@ -445,23 +502,24 @@ export function trayScene(stage, app) {
     hud.burst(sp.x, sp.y, { n: 18, spread: 110 });
     const f = ROLLS[STILL].frames[frameIndex];
     hud.toast(f.title, { kicker: `print ${k + 1} of ${n} · ${f.date}`, line: k === n - 1 ? 'the last one' : 'came up beautifully', hold: 1.8, sound: null });
+    ripple(0, 0, 1.2);
     gsap.timeline()
-      .to(p.g.position, { y: 1.3, duration: 0.7, ease: 'power2.out' })
-      .to(p.g.rotation, { x: -0.25, duration: 0.7, ease: 'power2.out' }, '<')
+      .to(p.g.position, { y: 1.2, z: p.g.position.z + 0.2, duration: 0.7, ease: 'power2.out' })
+      .to(p.g.rotation, { x: -0.08, z: 0, duration: 0.7, ease: 'power2.out' }, '<')
       .add(() => {
-        for (let d = 0; d < 6; d++) gsap.delayedCall(d * 0.12, () => drip(p));
-        stage.view(lineView, 1.5);
+        sfx.splash(0.12);
+        for (let d = 0; d < 7; d++) gsap.delayedCall(d * 0.11, () => drip(p));
       })
-      .to({}, { duration: 0.5 })
+      .to({}, { duration: 0.75 })
       .to(p.g.position, { x: s.x, y: s.y, z: s.z, duration: 1.1, ease: 'power3.inOut' })
       .to(p.g.rotation, { x: 0, y: 0, z: (Math.random() - 0.5) * 0.05, duration: 1.1, ease: 'power3.inOut' }, '<')
       .add(() => {
         const c = clip();
         sfx.tick(0.55, 0.2);
-        c.position.set(s.x, lineY - 0.06, s.z + 0.03);
+        c.position.set(s.x, s.y + 0.62, s.z + 0.02);
         stage.world.add(c);
-        gsap.from(c.position, { y: lineY + 0.4, duration: 0.3, ease: 'power2.out' });
-        const entry = { ...p, k, frameIndex, home: { pos: s.clone(), rot: p.g.rotation.clone() } };
+        gsap.from(c.position, { y: s.y + 1.0, duration: 0.3, ease: 'power2.out' });
+        const entry = { ...p, k, frameIndex, wet: 1, nextDrip: 0.4, home: { pos: s.clone(), rot: p.g.rotation.clone() } };
         hung.push(entry);
         stage.pick(p.g, {
           label: () => (reading === entry ? 'hang it back' : 'read the back'),
@@ -472,8 +530,6 @@ export function trayScene(stage, app) {
         hud.setCount(`${hung.length} OF ${n} DRY`);
         busy = false;
         updateHint();
-        // back to the tray for the next sheet, unless that was the last one
-        if (hung.length < n) gsap.delayedCall(1.4, () => !busy && !reading && stage.view(trayView, 1.2));
       });
   };
 
@@ -481,7 +537,6 @@ export function trayScene(stage, app) {
     if (busy) return;
     if (reading && reading !== e) return hangBack(reading);
     if (reading === e) return hangBack(e);
-    gsap.killTweensOf(stage.rig);
     reading = e;
     sfx.paper();
     e.moving = true;
@@ -509,8 +564,12 @@ export function trayScene(stage, app) {
   stage.pick(stack, {
     label: () => (hung.length + (busy ? 1 : 0) < n ? 'take a sheet' : null),
     click: develop,
-    enter: () => gsap.to(stack.position, { y: 0.06, duration: 0.25 }),
-    leave: () => gsap.to(stack.position, { y: 0, duration: 0.3 }),
+    enter: () => gsap.to(sheet.position, { y: sheet.userData.rest + 0.07, duration: 0.25, ease: 'power2.out' }),
+    leave: () => gsap.to(sheet.position, { y: sheet.userData.rest, duration: 0.3 }),
   });
   stage.onEmptyClick = () => reading && hangBack(reading);
+  return () => {
+    stage.hemi.color.set('#ffd9c0');
+    set.cleanup();
+  };
 }
