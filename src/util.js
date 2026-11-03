@@ -229,24 +229,31 @@ export function placeholderPhoto(rollIndex, frameIndex, title = '', scale = 1.5)
 
 const cropped = new Map();
 
+/** Landscape frames: 4:3, lying sideways on the film, upright once printed or held up. */
+export const isWide = (frame) => !!frame?.photo && !!frame.wide;
+
 /**
- * Real photos are cover-cropped into the 3:4 portrait frame once, on a canvas.
+ * Real photos are cover-cropped once, on a canvas: 3:4 portrait, or 4:3 when `wide`.
  * Until the image arrives the canvas shows the frame's placeholder.
  */
 function croppedPhoto(rollIndex, frameIndex, frame) {
   if (cropped.has(frame.photo)) return cropped.get(frame.photo);
-  const W = 900, H = 1200;
+  const [W, H] = frame.wide ? [1200, 900] : [900, 1200];
   const [c, g] = canvas(W, H);
-  g.drawImage(placeholderPhoto(rollIndex, frameIndex, frame.title), 0, 0, W, H);
+  const cover = (src, sw, sh) => {
+    const k = Math.max(W / sw, H / sh);
+    g.drawImage(src, (W - sw * k) / 2, (H - sh * k) / 2, sw * k, sh * k);
+  };
+  const ph = placeholderPhoto(rollIndex, frameIndex, frame.title);
+  cover(ph, ph.width, ph.height);
   const img = new Image();
   img.src = frame.photo;
   c.ready = img
     .decode()
     .then(() => {
-      const k = Math.max(W / img.naturalWidth, H / img.naturalHeight);
-      const w = img.naturalWidth * k, h = img.naturalHeight * k;
       g.imageSmoothingQuality = 'high';
-      g.drawImage(img, (W - w) / 2, (H - h) / 2, w, h);
+      cover(img, img.naturalWidth, img.naturalHeight);
+      if (img.naturalWidth > img.naturalHeight !== !!frame.wide) console.warn(`${frame.photo}: set wide: ${!frame.wide} for this photo`);
       return true;
     })
     .catch(() => false);
@@ -304,8 +311,10 @@ export function photoThumb(rollIndex, frameIndex, frame) {
 const PHOTO_VERT = /* glsl */ `
 varying vec2 vUv;
 uniform vec4 uCrop;
+uniform float uTurn;    // 1 = a landscape photo lying sideways in a portrait film frame
 void main() {
-  vUv = uCrop.xy + uv * uCrop.zw;
+  vec2 c = uCrop.xy + uv * uCrop.zw;
+  vUv = mix(c, vec2(c.y, 1.0 - c.x), uTurn);
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }`;
 
@@ -376,6 +385,7 @@ export function photoMaterial(map, opts = {}) {
       uFlash: { value: 0 },
       uBlur: { value: opts.blur ?? 0 },
       uCrop: { value: new THREE.Vector4(0, 0, 1, 1) },
+      uTurn: { value: opts.turn ?? 0 },
     },
     vertexShader: PHOTO_VERT,
     fragmentShader: PHOTO_FRAG,

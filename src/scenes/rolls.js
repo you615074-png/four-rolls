@@ -5,7 +5,7 @@ import { sfx } from '../sfx.js';
 import { CAN, FILM, canister, pen, slideViewer, stripSegment } from '../props.js';
 import {
   FONT, canvas, canvasTexture, cardTexture, damp, glowTexture, handLoop,
-  photoMaterial, photoTexture, releaseRoll, smooth,
+  isWide, photoMaterial, photoTexture, releaseRoll, smooth,
 } from '../util.js';
 
 const gsap = window.gsap;
@@ -113,7 +113,7 @@ function standingStrip(stage, rollIndex, { pulled, min = 0.6, x0 = -0.7, z = 0, 
   const items = roll.frames.map((f, i) => {
     const seg = new THREE.Group();
     seg.add(stripSegment());
-    const photo = new THREE.Mesh(new THREE.PlaneGeometry(FILM.imgW, FILM.imgH), photoMaterial(photoTexture(rollIndex, i, f), { neg, bright: 0.92 }));
+    const photo = new THREE.Mesh(new THREE.PlaneGeometry(FILM.imgW, FILM.imgH), photoMaterial(photoTexture(rollIndex, i, f), { neg, bright: 0.92, turn: isWide(f) ? 1 : 0 }));
     photo.position.z = 0.004;
     seg.add(photo);
     const back = new THREE.Mesh(photo.geometry, photo.material);
@@ -355,6 +355,9 @@ function lightRoll(stage, index, stats) {
     });
   };
 
+  // a landscape shot lies sideways on the film: turn the frame a quarter to read it
+  const upright = (it) => (isWide(it.frame) ? -Math.PI / 2 + 0.04 : 0.04);
+
   const holdUp = (it) => {
     if (held) putBack(held);
     guide.hide();
@@ -369,7 +372,7 @@ function lightRoll(stage, index, stats) {
     hud.say('tap it again to turn it over · tap outside to put it back');
     gsap.to(glow.material, { opacity: 0.95, duration: 0.9, delay: 0.25 });
     gsap.to(it.seg.position, { x: target.x, y: target.y, z: target.z, duration: 0.9, ease: 'power3.inOut' });
-    gsap.to(it.seg.rotation, { x: 0, y: -0.08, z: 0.04, duration: 0.9, ease: 'power3.inOut', onComplete: () => (it.ready = true) });
+    gsap.to(it.seg.rotation, { x: 0, y: -0.08, z: upright(it), duration: 0.9, ease: 'power3.inOut', onComplete: () => (it.ready = true) });
     gsap.to(it.seg.scale, { x: 1.28, y: 1.28, z: 1.28, duration: 0.9, ease: 'power3.inOut' });
     gsap.to(it.mat.uniforms.uNeg, { value: 0, duration: 1.4, delay: 0.35, ease: 'power2.inOut' });
   };
@@ -406,7 +409,7 @@ function lightRoll(stage, index, stats) {
     } })
       .to(it.seg.position, { y: target.y + 0.2, z: target.z + 0.25, duration: 0.45, ease: 'power2.out' })
       .to(it.seg.position, { y: target.y, z: target.z, duration: 0.55, ease: 'power2.inOut' })
-      .to(it.seg.rotation, { y: it.flipped ? Math.PI + 0.06 : -0.08, x: 0, z: it.flipped ? -0.03 : 0.04, duration: 1.0, ease: 'power3.inOut' }, 0);
+      .to(it.seg.rotation, { y: it.flipped ? Math.PI + 0.06 : -0.08, x: 0, z: it.flipped ? -0.03 : upright(it), duration: 1.0, ease: 'power3.inOut' }, 0);
   };
 
   stage.onFrame((dt) => {
@@ -515,6 +518,10 @@ function viewerRoll(stage, index, stats) {
 
   const show = (i, blur) => {
     screen.uniforms.uMap.value = photoTexture(index, i, roll.frames[i]);
+    // the screen is 1.0 × 1.18; a 4:3 slide fills its width inside a dark mount
+    const tall = isWide(roll.frames[i]) ? (1.18 / 1.0) * (4 / 3) : 1;
+    screen.uniforms.uCrop.value.set(0, (1 - tall) / 2, 1, tall);
+    screen.uniforms.uPaper.value.set(tall > 1 ? '#0d0a08' : '#f3eee2');
     screen.uniforms.uBlur.value = blur;
   };
 
@@ -654,21 +661,25 @@ const MAX_PRINTS = 6;
 
 function printCard(index, i, frame) {
   const g = new THREE.Group();
+  const wide = isWide(frame);
+  // the same paper turned on its side, the photo filling the top
+  const [bw, bd, pw, ph, py, cy] = wide ? [1.2, 0.98, 1.08, 0.78, -0.05, 0.42] : [0.92, 1.2, 0.8, 1.02, -0.05, 0.53];
+  g.userData.wide = wide;
   const base = new THREE.Mesh(
-    new THREE.BoxGeometry(0.92, 0.008, 1.2),
+    new THREE.BoxGeometry(bw, 0.008, bd),
     new THREE.MeshStandardMaterial({ color: '#efe9dc', roughness: 0.82, dithering: true }),
   );
   base.castShadow = base.receiveShadow = true;
-  const photo = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 1.02), photoMaterial(photoTexture(index, i, frame), { bright: 0.96 }));
+  const photo = new THREE.Mesh(new THREE.PlaneGeometry(pw, ph), photoMaterial(photoTexture(index, i, frame), { bright: 0.96 }));
   photo.rotation.x = -Math.PI / 2;
-  photo.position.set(0, 0.0045, -0.05);
+  photo.position.set(0, 0.0045, py);
   const [c, gg] = canvas(512, 64);
   gg.fillStyle = '#8a7d70';
   gg.font = `40px ${FONT.hand}`;
   gg.fillText(`${frame.date}  ·  ${frame.title}`, 12, 44);
   const caption = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.1), new THREE.MeshBasicMaterial({ map: canvasTexture(c), transparent: true, depthWrite: false, color: '#cfc6b8' }));
   caption.rotation.x = -Math.PI / 2;
-  caption.position.set(0, 0.0045, 0.53);
+  caption.position.set(wide ? -0.14 : 0, 0.0045, cy);
   g.add(base, photo, caption);
   return g;
 }
@@ -679,6 +690,7 @@ function circleMark(card, seed) {
   const tex = canvasTexture(c);
   const m = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 1.25), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
   m.rotation.x = -Math.PI / 2;
+  if (card.userData.wide) m.rotation.z = Math.PI / 2;
   m.position.set(0, 0.006, -0.03);
   card.add(m);
   const st = { p: 0 };

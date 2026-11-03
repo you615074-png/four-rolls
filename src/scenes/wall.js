@@ -3,7 +3,7 @@ import { ROLLS, COPY, LETTER, NOTES } from '../content.js';
 import { hud } from '../hud.js';
 import { sfx } from '../sfx.js';
 import { pushpin } from '../props.js';
-import { FONT, canvas, canvasTexture, cardTexture, corkTexture, photoMaterial, photoTexture, rng } from '../util.js';
+import { FONT, canvas, canvasTexture, cardTexture, corkTexture, isWide, photoMaterial, photoTexture, rng } from '../util.js';
 import { selectedFrames } from './darkroom.js';
 
 const gsap = window.gsap;
@@ -76,13 +76,15 @@ export function wallScene(stage, app) {
   picks.forEach((frameIndex, k) => {
     const [x, y, rot] = spots[k % spots.length];
     const card = new THREE.Group();
-    const border = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.45, 0.008), new THREE.MeshStandardMaterial({ color: '#f1ece0', roughness: 0.85 }));
-    const photo = new THREE.Mesh(new THREE.PlaneGeometry(1.02, 1.08), photoMaterial(photoTexture(STILL, frameIndex, roll.frames[frameIndex]), { mono: 1, bright: 0.9 }));
+    const wide = isWide(roll.frames[frameIndex]);
+    const [bw, bh, pw, ph] = wide ? [1.45, 1.2, 1.29, 0.92] : [1.2, 1.45, 1.02, 1.08];
+    const border = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, 0.008), new THREE.MeshStandardMaterial({ color: '#f1ece0', roughness: 0.85 }));
+    const photo = new THREE.Mesh(new THREE.PlaneGeometry(pw, ph), photoMaterial(photoTexture(STILL, frameIndex, roll.frames[frameIndex]), { mono: 1, bright: 0.9 }));
     photo.position.set(0, 0.1, 0.005);
     card.add(border, photo);
     card.traverse((m) => m.isMesh && (m.castShadow = true));
     add(card, x, y, rot, 0.03 + k * 0.004);
-    pins.push(add(pushpin(), x + Math.sin(-rot) * 0.6, y + 0.62, 0, 0.05 + k * 0.004));
+    pins.push(add(pushpin(), x + Math.sin(-rot) * 0.6, y + bh / 2 - 0.1, 0, 0.05 + k * 0.004));
     const tag = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.3), new THREE.MeshStandardMaterial({
       map: cardTexture({ w: 320, h: 120, bg: '#f2ead6', lines: [{ text: `${NOTES[k % NOTES.length].date} · ${roll.frames[frameIndex].title.toLowerCase()}`, font: `36px ${FONT.hand}`, x: 18, y: 76, color: '#5a4636' }] }),
     }));

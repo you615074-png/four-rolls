@@ -4,7 +4,7 @@ import { hud } from '../hud.js';
 import { sfx } from '../sfx.js';
 import { SET, buildDarkroom } from '../darkroomSet.js';
 import { FILM, bottle, clip, clothesline, lightBox, loupe, paperStack, pen, stripSegment, tray } from '../props.js';
-import { FONT, canvas, canvasTexture, cardTexture, damp, glowTexture, photoMaterial, photoTexture, photoThumb, photoURL, wrapText } from '../util.js';
+import { FONT, canvas, canvasTexture, cardTexture, damp, glowTexture, isWide, photoMaterial, photoTexture, photoThumb, photoURL, wrapText } from '../util.js';
 
 const gsap = window.gsap;
 const STILL = 3;
@@ -82,7 +82,7 @@ export function lightboxScene(stage, app) {
       const g = new THREE.Group();
       g.add(stripSegment());
       const f = roll.frames[frameIndex];
-      const photo = new THREE.Mesh(new THREE.PlaneGeometry(FILM.imgW, FILM.imgH), photoMaterial(photoTexture(STILL, frameIndex, f), { bright: 1.18 }));
+      const photo = new THREE.Mesh(new THREE.PlaneGeometry(FILM.imgW, FILM.imgH), photoMaterial(photoTexture(STILL, frameIndex, f), { bright: 1.18, turn: isWide(f) ? 1 : 0 }));
       photo.position.z = 0.003;
       g.add(photo);
       g.scale.setScalar(scale);
@@ -246,7 +246,7 @@ function noteTexture(frameIndex, k) {
 function makePrint(frameIndex, k) {
   const g = new THREE.Group();
   const roll = ROLLS[STILL];
-  const W = 0.9, H = 1.2;
+  const [W, H] = isWide(roll.frames[frameIndex]) ? [1.12, 0.84] : [0.9, 1.2];
   const curl = (geo, sign, off) => {
     const pos = geo.attributes.position;
     for (let i = 0; i < pos.count; i++) {
@@ -294,9 +294,10 @@ export function trayScene(stage, app) {
 
   const { lineZ } = SET;
   const spacing = 1.18;
-  const slot = (k) => {
+  // every print hangs with its top edge just under the line, whatever its shape
+  const slot = (k, H) => {
     const x = 0.3 + (k - (n - 1) / 2) * spacing;
-    return new THREE.Vector3(x, set.lineAt(x) - 0.68, lineZ + 0.03);
+    return new THREE.Vector3(x, set.lineAt(x) - 0.08 - H / 2, lineZ + 0.03);
   };
   const hung = [];
   let busy = false;
@@ -493,7 +494,7 @@ export function trayScene(stage, app) {
 
   // lifted out with the tongs, held to drain, then pegged on the line
   const hangUp = ({ p, k, frameIndex }) => {
-    const s = slot(k);
+    const s = slot(k, p.H);
     rockGuide?.hide();
     gsap.fromTo(p.mat.uniforms.uBright, { value: 1.35 }, { value: 1, duration: 1.2, ease: 'power2.out' });
     hud.say('there it is');
@@ -516,7 +517,7 @@ export function trayScene(stage, app) {
       .add(() => {
         const c = clip();
         sfx.tick(0.55, 0.2);
-        c.position.set(s.x, s.y + 0.62, s.z + 0.02);
+        c.position.set(s.x, s.y + p.H / 2 + 0.02, s.z + 0.02);
         stage.world.add(c);
         gsap.from(c.position, { y: s.y + 1.0, duration: 0.3, ease: 'power2.out' });
         const entry = { ...p, k, frameIndex, wet: 1, nextDrip: 0.4, home: { pos: s.clone(), rot: p.g.rotation.clone() } };

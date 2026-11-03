@@ -30,7 +30,7 @@ python3 serve.py 4340
 ## 替换内容
 
 - 文案、片名、slow days 背面纸条（`SLOW_NOTES`）、far away 地点和公里数（`FAR_PLACES`）、照片背面和信：`src/content.js`
-- 真实照片：`frames` 里的 `photo` 填图片地址，任意比例都行，会居中裁成 3:4 竖幅；为 `null` 时自动生成占位图。
+- 真实照片：`frames` 里的 `photo` 填图片地址，竖幅居中裁成 3:4；横幅加 `wide: true`，按 4:3 横幅处理：在底片上横躺（和真胶卷一样），举起看、看片器、相纸、晾绳和墙上都是正的横幅。`photo` 为 `null` 时自动生成占位图；`wide` 标错时控制台会提示。
 - 测试图：`TEST_PHOTOS` 指向 `photos/test10/`（10 张实拍的网页尺寸副本，已转正，不进 git），循环分配到四卷。
 
 ## 结构
