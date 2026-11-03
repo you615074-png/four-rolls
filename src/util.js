@@ -227,31 +227,49 @@ export function placeholderPhoto(rollIndex, frameIndex, title = '', scale = 1.5)
   return c;
 }
 
-const loadedImages = new Map();
+const cropped = new Map();
 
-/** Photo source for a frame: real image if configured, otherwise a placeholder canvas. */
+/**
+ * Real photos are cover-cropped into the 3:4 portrait frame once, on a canvas.
+ * Until the image arrives the canvas shows the frame's placeholder.
+ */
+function croppedPhoto(rollIndex, frameIndex, frame) {
+  if (cropped.has(frame.photo)) return cropped.get(frame.photo);
+  const W = 900, H = 1200;
+  const [c, g] = canvas(W, H);
+  g.drawImage(placeholderPhoto(rollIndex, frameIndex, frame.title), 0, 0, W, H);
+  const img = new Image();
+  img.src = frame.photo;
+  c.ready = img
+    .decode()
+    .then(() => {
+      const k = Math.max(W / img.naturalWidth, H / img.naturalHeight);
+      const w = img.naturalWidth * k, h = img.naturalHeight * k;
+      g.imageSmoothingQuality = 'high';
+      g.drawImage(img, (W - w) / 2, (H - h) / 2, w, h);
+      return true;
+    })
+    .catch(() => false);
+  cropped.set(frame.photo, c);
+  return c;
+}
+
+/** Photo source for a frame: the cropped real image if configured, otherwise a placeholder. */
 export function photoSource(rollIndex, frameIndex, frame) {
   if (!frame?.photo) return placeholderPhoto(rollIndex, frameIndex, frame?.title);
-  if (!loadedImages.has(frame.photo)) {
-    const img = new Image();
-    img.src = frame.photo;
-    loadedImages.set(frame.photo, img);
-  }
-  return loadedImages.get(frame.photo);
+  return croppedPhoto(rollIndex, frameIndex, frame);
 }
 
 const texCache = new Map();
 export function photoTexture(rollIndex, frameIndex, frame) {
-  const key = `${rollIndex}:${frameIndex}`;
+  // frames that share a photo share one texture
+  const key = `${rollIndex}:${frame?.photo || frameIndex}`;
   if (texCache.has(key)) return texCache.get(key);
   const src = photoSource(rollIndex, frameIndex, frame);
-  const t = src instanceof HTMLCanvasElement ? new THREE.CanvasTexture(src) : new THREE.Texture(src);
+  const t = new THREE.CanvasTexture(src);
   t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = 16;
-  if (src instanceof HTMLImageElement) {
-    if (src.complete) t.needsUpdate = true;
-    else src.addEventListener('load', () => (t.needsUpdate = true), { once: true });
-  }
+  src.ready?.then((ok) => ok && (t.needsUpdate = true));
   texCache.set(key, t);
   return t;
 }

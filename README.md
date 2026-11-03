@@ -30,7 +30,8 @@ python3 serve.py 4340
 ## 替换内容
 
 - 文案、片名、slow days 背面纸条（`SLOW_NOTES`）、far away 地点和公里数（`FAR_PLACES`）、照片背面和信：`src/content.js`
-- 真实照片：把 `frames` 里的 `photo: null` 改成图片地址（竖幅约 3:4）。为空时自动生成占位图。
+- 真实照片：`frames` 里的 `photo` 填图片地址，任意比例都行，会居中裁成 3:4 竖幅；为 `null` 时自动生成占位图。
+- 测试图：`TEST_PHOTOS` 指向 `photos/test10/`（10 张实拍的网页尺寸副本，已转正，不进 git），循环分配到四卷。
 
 ## 结构
 

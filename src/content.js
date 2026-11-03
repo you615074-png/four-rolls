@@ -1,5 +1,10 @@
-// All copy and image slots live here. Replace `photo: null` with an image URL
-// (portrait, roughly 3:4) to swap a placeholder for a real frame.
+// All copy and image slots live here. `photo` is an image URL, or null for a
+// placeholder. Any aspect works: frames are cover-cropped to 3:4 portrait.
+
+// Test set: local copies of ten real photos (not in git), cycled through every roll.
+const TEST_PHOTOS = [2686, 2697, 2700, 2705, 2713, 2722, 2739, 2749, 2753, 2754].map(
+  (n) => `photos/test10/DSC_${n}.jpg`,
+);
 
 const TITLES = [
   'Window Seat', 'Sense of Order', 'Low Tide', 'Paper Lanterns', 'Under the Snowline',
@@ -40,7 +45,7 @@ function frames(rollIndex, startMonth) {
     return {
       date: `${String(month).padStart(2, '0')}.${String(day).padStart(2, '0')}`,
       title: TITLES[(i + rollIndex * 6) % TITLES.length],
-      photo: null,
+      photo: TEST_PHOTOS[(i + rollIndex * 3) % TEST_PHOTOS.length],
       note: SLOW_NOTES[(i * 3 + rollIndex) % SLOW_NOTES.length],
       ...FAR_PLACES[(i * 5 + rollIndex) % FAR_PLACES.length],
     };
