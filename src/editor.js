@@ -245,15 +245,33 @@ $('#d-remove').addEventListener('click', () => busy('移除中…', async () => 
 
 async function fillFrom(files) {
   const imgs = [...files].filter((f) => f.type.startsWith('image/'));
-  const R = ROLLS[roll];
-  const n = Math.min(imgs.length, R.frames.length - sel);
+  if (!imgs.length) return say('没有可用的照片');
+  // from the chosen frame to the end of this roll, then on into the next rolls
+  const spots = [];
+  for (let r = roll; r < ROLLS.length && spots.length < imgs.length; r++) {
+    for (let i = r === roll ? sel : 0; i < ROLLS[r].frames.length && spots.length < imgs.length; i++) spots.push([r, i]);
+  }
+  const n = spots.length;
+  let done = 0, failed = 0;
   await busy(`处理照片 0 / ${n}…`, async () => {
     for (let k = 0; k < n; k++) {
       say(`处理照片 ${k + 1} / ${n}…`);
-      await setPhoto(roll, sel + k, imgs[k]);
+      // one unreadable file shouldn't stop the rest
+      try {
+        await setPhoto(spots[k][0], spots[k][1], imgs[k]);
+        done++;
+      } catch (e) {
+        console.warn(imgs[k].name, e);
+        failed++;
+      }
     }
   });
-  if (imgs.length > n) say(`已放入 ${n} 张，后面的格子不够，多出 ${imgs.length - n} 张没放`);
+  drawTabs();
+  if (failed) return say(`放入了 ${done} 张，有 ${failed} 张读不出来（可以换成 JPG 或 PNG 再试）`);
+  const last = ROLLS[spots[n - 1][0]].name;
+  if (imgs.length > n) say(`已放入 ${n} 张，后面的格子都满了，多出 ${imgs.length - n} 张没放`);
+  else if (spots[n - 1][0] !== roll) say(`已放入 ${n} 张，这一卷放满后接着放到了 ${last}`);
+  else say(`已放入 ${n} 张`);
 }
 $('#bulk').addEventListener('change', (e) => {
   const files = e.target.files;

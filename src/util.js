@@ -1,11 +1,12 @@
 import * as THREE from 'three';
+const gsap = window.gsap;
 
 export const FONT = {
   mono: '"IBM Plex Mono", "SF Mono", Menlo, monospace',
   serif: '"Instrument Serif", "Songti SC", "STSong", Georgia, serif',
   hand: '"Caveat", "LXGW WenKai TC", "Kaiti SC", cursive',
   type: '"Special Elite", "LXGW WenKai TC", "Courier New", monospace',
-  kai: '"LXGW WenKai TC", "Kaiti SC", "STKaiti", serif',
+  kai: '"LXGW WenKai TC", "Kaiti SC", "STKaiti", "KaiTi", "楷体", serif',
 };
 
 export function rng(seed) {
@@ -542,5 +543,5 @@ export function handHeart(g, cx, cy, s, progress, { width = 4, color = '#d0261c'
 }
 
 export function easeTo(obj, props, duration = 0.8, ease = 'power3.inOut') {
-  return window.gsap.to(obj, { ...props, duration, ease });
+  return gsap.to(obj, { ...props, duration, ease });
 }

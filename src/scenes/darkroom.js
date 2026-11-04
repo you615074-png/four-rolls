@@ -3,8 +3,8 @@ import { ROLLS, COPY, NOTES } from '../content.js';
 import { hud } from '../hud.js';
 import { sfx } from '../sfx.js';
 import { SET, buildDarkroom } from '../darkroomSet.js';
-import { FILM, bottle, clip, clothesline, lightBox, loupe, paperStack, pen, stripSegment, tray } from '../props.js';
-import { FONT, canvas, canvasTexture, cardTexture, damp, glowTexture, isWide, photoMaterial, photoTexture, photoThumb, photoURL, wrapText } from '../util.js';
+import { FILM, bottle, clip, lightBox, loupe, paperStack, pen, stripSegment, tray } from '../props.js';
+import { FONT, canvas, canvasTexture, cardTexture, damp, isWide, photoMaterial, photoTexture, photoThumb, photoURL, wrapText } from '../util.js';
 
 const gsap = window.gsap;
 const STILL = 3;

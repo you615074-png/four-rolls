@@ -10,7 +10,6 @@ import {
 
 const gsap = window.gsap;
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
-const STILL = 3;
 const CUT_W = 0.94; // a cut frame is a little narrower than its pitch: the gap is the cut
 const frameNo = (i) => String(i + 1).padStart(2, '0');
 
@@ -944,7 +943,8 @@ function stillDeck(stage, app, index) {
     deck.pop();
     piles[where].push(c);
     (where === 'print' ? circled : boxed).add(c.i);
-    where === 'print' ? sfx.pen() : sfx.paper();
+    if (where === 'print') sfx.pen();
+    else sfx.paper();
     fly(c, where, piles[where].length - 1, () => {
       if (where !== 'print') return;
       (c.mark ??= circleMark(c.g, c.i * 31 + 5)).to(1);

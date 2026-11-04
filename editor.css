@@ -26,6 +26,8 @@ a { color: inherit; }
   padding: 14px 28px; background: #120a06; color: var(--ink);
   box-shadow: 0 6px 24px rgba(40, 20, 6, 0.35);
 }
+.ed-back { font: 500 11px/1 var(--mono); letter-spacing: 0.08em; color: var(--ink-dim); text-decoration: none; padding: 10px 0; }
+.ed-back:hover { color: var(--ink); }
 .ed-sign { display: flex; flex-direction: column; text-decoration: none; }
 .ed-sign b { font: 400 26px/1.05 var(--serif); color: #f6eadb; }
 .ed-sign b em { font-style: italic; }

@@ -13,11 +13,12 @@
 </head>
 <body class="ed">
   <header class="ed-top">
+    <a class="ed-back" href="./index.html" title="回到 Four Rolls 的书桌">← 返回书桌</a>
     <a class="ed-sign" href="./index.html" title="回到书桌">
       <b>Four rolls, <em>one us</em></b><span>SENDER'S NOTES</span>
     </a>
     <p class="ed-role">寄件人后台 <small>在这里装好包裹；打开的人看不到这一页</small></p>
-    <p class="ed-status" id="status" aria-live="polite">改动会自动保存在这台设备的浏览器里</p>
+    <p class="ed-status" id="status" aria-live="polite">照片和文字只保存在这台设备的浏览器里，不会上传</p>
     <div class="ed-actions">
       <button type="button" class="ed-btn ed-btn-ghost" id="reset">恢复示例</button>
       <a class="ed-btn ed-btn-go" href="./index.html">去拆包裹 <i>→</i></a>
@@ -53,7 +54,7 @@
             <input id="bulk" type="file" accept="image/*" multiple hidden>
           </label>
         </div>
-        <p class="ed-bulk-note">从选中的格子开始按顺序填，原有照片会被替换。竖拍横拍都可以，横幅照片会自动用横的画框。</p>
+        <p class="ed-bulk-note">可以一次选很多张：从选中的格子开始按顺序填，这一卷放满后接着放进下一卷，原有照片会被替换。竖拍横拍都可以，横幅照片会自动用横的画框。</p>
         <ol class="ed-grid" id="grid"></ol>
       </div>
 
