@@ -313,10 +313,13 @@ const PHOTO_VERT = /* glsl */ `
 varying vec2 vUv;
 uniform vec4 uCrop;
 uniform float uTurn;    // 1 = a landscape photo lying sideways in a portrait film frame
+#include <clipping_planes_pars_vertex>
 void main() {
   vec2 c = uCrop.xy + uv * uCrop.zw;
   vUv = mix(c, vec2(c.y, 1.0 - c.x), uTurn);
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+  gl_Position = projectionMatrix * mvPosition;
+  #include <clipping_planes_vertex>
 }`;
 
 const PHOTO_FRAG = /* glsl */ `
@@ -338,7 +341,9 @@ float noise(vec2 p) {
   return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y);
 }
 
+#include <clipping_planes_pars_fragment>
 void main() {
+  #include <clipping_planes_fragment>
   vec3 c = texture2D(uMap, vUv).rgb;
   if (uBlur > 0.0004) {
     // golden-angle disc: a smooth defocus, no blocky mip steps
@@ -392,6 +397,7 @@ export function photoMaterial(map, opts = {}) {
     fragmentShader: PHOTO_FRAG,
     side: opts.side ?? THREE.FrontSide,
     toneMapped: false,
+    clipping: true, // honours clippingPlanes (a strip's film is cut away inside its can)
   });
 }
 

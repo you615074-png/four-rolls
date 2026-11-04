@@ -16,25 +16,38 @@ const frameNo = (i) => String(i + 1).padStart(2, '0');
 
 /* ---------- a strip standing on the table, coming out of its can ---------- */
 
-function standingStrip(stage, rollIndex, { pulled, min = 0.6, x0 = -0.7, z = 0, neg = 1, cut = false }) {
+function standingStrip(stage, rollIndex, { pulled, min = 0.6, x0 = -0.7, z = 0, neg = 1, cut = false, until = null }) {
   const roll = ROLLS[rollIndex];
   const can = canister(roll);
   can.position.set(x0, 0, z);
   stage.world.add(can);
   const mouth = x0 + CAN.r - 0.05;
+  // the film exists only outside the can (or the file box): whatever is still wound in is cut away
+  // at the felt lip, just inside the wall, so no frame ever shows through the back or the top.
+  // `until` does the same where the film runs into something else (the viewer's hood).
+  stage.renderer.localClippingEnabled = true;
+  const clipping = [new THREE.Plane(new THREE.Vector3(1, 0, 0), -(mouth - 0.01))];
+  if (until != null) clipping.push(new THREE.Plane(new THREE.Vector3(-1, 0, 0), until));
+  const clipped = (m) => {
+    m.clippingPlanes = clipping;
+    m.clipShadows = true;
+    return m;
+  };
   if (cut) {
     // already cut into single frames: they stand in a grooved rail coming out of a file box
     can.visible = false;
     const wood = new THREE.MeshStandardMaterial({ color: '#3a2a20', roughness: 0.6 });
-    const fileBox = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.25, 0.8), new THREE.MeshStandardMaterial({ color: '#2b2622', roughness: 0.75 }));
-    fileBox.position.set(x0 - 0.05, 0.625, z);
+    // taller than the frames standing in it (they're 1.54 to the top), so none shows over the rim
+    const boxH = FILM.height + 0.2;
+    const fileBox = new THREE.Mesh(new THREE.BoxGeometry(1.0, boxH, 0.8), new THREE.MeshStandardMaterial({ color: '#2b2622', roughness: 0.75 }));
+    fileBox.position.set(x0 - 0.05, boxH / 2, z);
     fileBox.castShadow = fileBox.receiveShadow = true;
     stage.world.add(fileBox);
     const label = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.3), new THREE.MeshBasicMaterial({ map: cardTexture({ w: 310, h: 150, bg: '#e9dfc7', lines: [
       { text: roll.name, font: `46px ${FONT.hand}`, x: 155, y: 70, align: 'center', color: '#2b241e' },
       { text: 'CUT · 24 FRAMES', font: `500 15px ${FONT.mono}`, x: 155, y: 118, align: 'center', color: '#7a6d60' },
     ] }), color: '#d9d0c0' }));
-    label.position.set(x0 - 0.05, 0.75, z + 0.401);
+    label.position.set(x0 - 0.05, boxH * 0.6, z + 0.401);
     stage.world.add(label);
     for (let s = -0.3; s < 9; s += 0.25) {
       const a = { x: mouth + s, z: z + 0.06 * Math.sin(s * 0.8) - 0.004 * s * s };
@@ -47,8 +60,10 @@ function standingStrip(stage, rollIndex, { pulled, min = 0.6, x0 = -0.7, z = 0, 
   }
   const items = roll.frames.map((f, i) => {
     const seg = new THREE.Group();
-    seg.add(stripSegment());
-    const photo = new THREE.Mesh(new THREE.PlaneGeometry(FILM.imgW, FILM.imgH), photoMaterial(photoTexture(rollIndex, i, f), { neg, bright: 0.92, turn: isWide(f) ? 1 : 0 }));
+    const film = stripSegment();
+    clipped(film.material);
+    seg.add(film);
+    const photo = new THREE.Mesh(new THREE.PlaneGeometry(FILM.imgW, FILM.imgH), clipped(photoMaterial(photoTexture(rollIndex, i, f), { neg, bright: 0.92, turn: isWide(f) ? 1 : 0 })));
     photo.position.z = 0.004;
     seg.add(photo);
     const back = new THREE.Mesh(photo.geometry, photo.material);
@@ -57,6 +72,16 @@ function standingStrip(stage, rollIndex, { pulled, min = 0.6, x0 = -0.7, z = 0, 
     seg.add(back);
     stage.world.add(seg);
     return { seg, photo, mat: photo.material, i, frame: f, lift: 0, liftTo: 0, hop: 0, out: false };
+  });
+  // a roll's film doesn't end at its last frame: the blank tail runs on into the can, so even
+  // pulled all the way out the strip is still fixed to the spool
+  const tail = cut ? [] : [0, 1, 2].map((j) => {
+    const seg = new THREE.Group();
+    const film = stripSegment();
+    clipped(film.material);
+    seg.add(film);
+    stage.world.add(seg);
+    return { seg, i: roll.frames.length + j, lift: 0, hop: 0, out: false, blank: true };
   });
   const strip = {
     can, items, pulled, min, mouth, tease: 0, max: roll.frames.length * FILM.pitch + 0.2,
@@ -80,10 +105,10 @@ function standingStrip(stage, rollIndex, { pulled, min = 0.6, x0 = -0.7, z = 0, 
     // so neighbours share their edges and the film reads as one continuous strip
     layout() {
       const half = FILM.pitch / 2;
-      for (const it of items) {
+      for (const it of [...items, ...tail]) {
         if (it.out) continue;
         const s = strip.at(it);
-        it.seg.visible = s > -FILM.pitch * 0.55;
+        it.seg.visible = s > -FILM.pitch * 0.52; // any of it past the lip (the rest is clipped away)
         if (cut) {
           // single frames: each stands on its own in the rail, with a gap either side
           const p = strip.place(s);
@@ -153,7 +178,8 @@ function dragToPull(stage, strip, { label = 'drag ⟷', onFirst } = {}) {
       const now = performance.now();
       let d = dx * 0.011;
       if (strip.pulled + d > strip.max || strip.pulled + d < strip.min) d *= 0.3;
-      strip.pulled += d;
+      // the overpull gives a little and then stops, so the end of the film never comes out
+      strip.pulled = clamp(strip.pulled + d, strip.min - 0.45, strip.max + 0.45);
       v = v * 0.6 + clamp((d / Math.max(8, now - last)) * 1000, -14, 14) * 0.4;
       last = now;
     },
@@ -486,10 +512,13 @@ function viewerRoll(stage, index, stats) {
   const gateX = -0.42;
   const sGate = gateX - (x0 + CAN.r - 0.05);
   const atGate = (i) => sGate + (i + 0.5) * FILM.pitch; // pulled length that puts frame i in the gate
-  const strip = standingStrip(stage, index, { pulled: atGate(0), min: atGate(0), x0, z });
+  const VIEWER = { x: 1.05, z: 0.65, halfW: 0.75 };
+  const hw = FILM.pitch / 2 + 0.04;
+  const hoodFrom = gateX + hw + 0.03; // where the film goes into the dark hood on the viewer's side
+  const strip = standingStrip(stage, index, { pulled: atGate(0), min: atGate(0), x0, z, until: hoodFrom + 0.04 });
   strip.max = atGate(total - 1);
   const v = slideViewer();
-  v.group.position.set(1.05, 0, 0.65);
+  v.group.position.set(VIEWER.x, 0, VIEWER.z);
   stage.world.add(v.group);
   // the gate: a brass frame the film runs through, and a dark hood into the side of the viewer
   {
@@ -497,11 +526,14 @@ function viewerRoll(stage, index, stats) {
     const dark = new THREE.MeshStandardMaterial({ color: '#15110f', roughness: 0.6 });
     const g = strip.place(sGate);
     const gate = new THREE.Group();
-    const hw = FILM.pitch / 2 + 0.04, top = FILM.height + 0.12;
+    const top = FILM.height + 0.12;
+    // each post is a pair of plates with a slit between them for the film to run through
     for (const sx of [-1, 1]) {
-      const post = new THREE.Mesh(new THREE.BoxGeometry(0.05, top, 0.14), brass);
-      post.position.set(sx * hw, top / 2, 0);
-      gate.add(post);
+      for (const sz of [-1, 1]) {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.05, top, 0.04), brass);
+        post.position.set(sx * hw, top / 2, sz * 0.04);
+        gate.add(post);
+      }
     }
     for (const y of [0.03, top]) {
       for (const sz of [-1, 1]) {
@@ -510,13 +542,18 @@ function viewerRoll(stage, index, stats) {
         gate.add(rail);
       }
     }
-    const hood = new THREE.Mesh(new THREE.BoxGeometry(0.3 - (gateX + hw), FILM.height * 0.7, 0.5), dark);
-    hood.position.set((0.3 + gateX + hw) / 2 - gateX, FILM.height * 0.55, 0.18);
-    gate.add(hood);
     gate.position.set(gateX, 0, g.z);
     gate.rotation.y = g.ry;
     gate.traverse((m) => m.isMesh && (m.castShadow = m.receiveShadow = true));
     stage.world.add(gate);
+    // the hood: a dark tunnel from just past the gate into the viewer's side, taller than the
+    // film and deep enough to take it in; the film is cut away inside it, so it goes in, not through
+    const side = VIEWER.x - VIEWER.halfW; // the viewer's left face
+    const zFront = VIEWER.z - 0.2, zBack = g.z - 0.14;
+    const hood = new THREE.Mesh(new THREE.BoxGeometry(side + 0.05 - hoodFrom, FILM.height + 0.16, zFront - zBack), dark);
+    hood.position.set((side + 0.05 + hoodFrom) / 2, (FILM.height + 0.16) / 2, (zFront + zBack) / 2);
+    hood.castShadow = hood.receiveShadow = true;
+    stage.world.add(hood);
   }
   const spool = strip.can.userData.spool;
   // the can, the gate and the viewer: the whole film path stays in view
@@ -812,7 +849,8 @@ function stillDeck(stage, app, index) {
   const restAt = (where, k, c) => {
     const h = homes[where];
     const spread = where === 'deck' ? 0.35 : 1;
-    return { x: h.x + c.jitter.x * spread, y: 0.006 * scale + k * layer, z: h.z + c.jitter.z * spread, r: c.jitter.r * (where === 'deck' ? 0.5 : 1.6) };
+    // the bottom sheet's underside sits just above the mat (the mat is 0.004 up), the rest one on another
+    return { x: h.x + c.jitter.x * spread, y: 0.005 + 0.004 * scale + k * layer, z: h.z + c.jitter.z * spread, r: c.jitter.r * (where === 'deck' ? 0.5 : 1.6) };
   };
   const placeAll = () => {
     for (const where of ['deck', 'box', 'print']) {
@@ -868,11 +906,14 @@ function stillDeck(stage, app, index) {
     const dir = Math.sign(p.x - c.g.position.x) || 1;
     gsap.timeline({ onComplete: then })
       .to(c.g.position, { x: p.x, z: p.z, duration: 0.75, ease: 'power3.out' }, 0)
-      .to(c.g.position, { y: p.y + 0.16, duration: 0.2, ease: 'power2.out' }, 0)
-      .to(c.g.position, { y: p.y + 0.012, duration: 0.42, ease: 'sine.inOut' }, 0.2)
+      // up off whichever is higher, where it was or where it's going, so it never dips into a heap
+      .to(c.g.position, { y: Math.max(c.g.position.y, p.y) + 0.08, duration: 0.2, ease: 'power2.out' }, 0)
+      // skimming high enough that its tipped edge clears the heap it's passing over
+      .to(c.g.position, { y: p.y + 0.03, duration: 0.42, ease: 'sine.inOut' }, 0.2)
       .to(c.g.position, { y: p.y, duration: 0.22, ease: 'power1.out' }, 0.62)
       .to(c.g.rotation, { y: p.r, duration: 0.75, ease: 'power3.out' }, 0)
-      .to(c.g.rotation, { z: -dir * 0.05, x: 0, duration: 0.25, ease: 'power2.out' }, 0)
+      // tipped only once it is up off the heap
+      .to(c.g.rotation, { z: -dir * 0.025, x: 0, duration: 0.2, ease: 'power2.out' }, 0.12)
       .to(c.g.rotation, { z: 0, duration: 0.5, ease: 'sine.out' }, 0.3);
   };
 

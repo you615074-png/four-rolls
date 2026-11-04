@@ -170,19 +170,22 @@ function tongs(tip = '#c42a1e') {
   for (const side of [-1, 1]) {
     const arm = new THREE.Group();
     arm.position.set(0.6, 0, side * 0.03); // the hinge
-    const s = new THREE.Mesh(new RoundedBoxGeometry(1.25, 0.035, 0.03, 1, 0.012), bamboo);
+    // the arm and its rubber tip end exactly at the gripping point, nothing beyond it
+    const s = new THREE.Mesh(new RoundedBoxGeometry(1.2, 0.035, 0.03, 1, 0.012), bamboo);
     s.position.set(-0.6, 0, -side * 0.006);
     arm.add(s);
     const t = new THREE.Mesh(new RoundedBoxGeometry(0.2, 0.05, 0.03, 1, 0.012), rubber);
-    t.position.set(-1.2, 0, -side * 0.012);
+    t.position.set(-1.1, 0, -side * 0.012);
     arm.add(t);
     arm.userData = { side };
     g.add(arm);
     arms.push(arm);
   }
   g.userData.jaw = (open) => {
-    // turning about the hinge swings the tip outward (shut, the tips meet on the paper)
-    for (const a of arms) a.rotation.y = a.userData.side * open * 0.11;
+    // turning about the hinge swings the tip outward (shut, the tips meet on the paper). The lower
+    // jaw (-1) barely moves: it slides in under a print lying on the tray's floor, the upper one
+    // lifts to let the paper in, so the tongs never go down through the floor
+    for (const a of arms) a.rotation.y = a.userData.side > 0 ? open * 0.13 : 0;
   };
   g.userData.jaw(0);
   return shade(g);
@@ -453,13 +456,16 @@ export function buildDarkroom(stage) {
   dev.group.rotation.y = -0.03;
   W.add(dev.group);
   const tg = tongs();
-  tg.position.set(1.35, dev.liquidY + 0.14, -2.35);
+  tg.position.set(1.35, dev.liquidY + 0.175, -2.35); // lying on the rim, not in it
   tg.rotation.set(0, 0.55, -0.1);
   W.add(tg);
+  // the thermometer leans in the bath, its top end resting on the left lip, and goes with the
+  // tray when it's rocked (in the tray's own frame; measured from plasticTray's lip and ribs)
   const th = thermometer();
-  th.position.set(-0.75, dev.liquidY - 0.02, -3.85);
-  th.rotation.set(0, -0.4, 0.12);
-  W.add(th);
+  const thTop = new THREE.Vector3(-1.66, 0.375, -0.8), thLow = new THREE.Vector3(-0.458, 0.144, -0.365);
+  th.position.addVectors(thTop, thLow).multiplyScalar(0.5);
+  th.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), thLow.clone().sub(thTop).normalize());
+  dev.group.add(th);
 
   // bottles, a graduate and the timer along the wall
   const bottles = [['Dev', '1 + 9 · 20°C', [2.55, -3.95]], ['Stop', 'acetic · 2%', [3.25, -3.55]], ['Fix', 'rapid · 1 + 4', [2.7, -2.8]]];

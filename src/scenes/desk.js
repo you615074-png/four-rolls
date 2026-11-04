@@ -14,14 +14,17 @@ const STILL = 3;
 const BOX = { x: 0.3, z: -0.15 }; // the parcel, until it's unpacked
 // once it's empty the box is carried off past the top of the frame, on a line that misses the mug and the pen
 const AWAY = { x: 2.6, z: -7.6 };
-const LID = { x: -3.9, z: -2.0, ry: 0.22 }; // the lid, set down beside it
+// the lid, set down behind the box: clear of the lamp's foot, the mug and the tape
+const LID = { x: 1.35, z: -4.45, ry: 0.04 };
+const LID_Y = 0.32; // resting on its skirt, which is this deep
 const ENV_ASIDE = { x: -3.85, z: 2.35, ry: 0.18 };
 const LAYOUT = [
-  // every roll lands clear of where the box stood, so nothing passes through it
-  { x: -2.3, z: 0.45, yaw: 0.35, roll: 1.0 },
-  { x: -0.4, z: 2.05, yaw: -0.2, roll: 0.75 },
-  { x: 2.0, z: 1.75, yaw: 0.12, roll: 0.95 },
-  { x: 3.75, z: 2.65, yaw: -0.1, roll: 0.85 },
+  // two rows in front of the box, every can clear of it, of the others and of the envelope
+  // (measured: a can is 1.93 long with its knob and 0.98 across)
+  { x: -0.95, z: 1.7, yaw: 0.1, roll: 1.0 },
+  { x: 1.45, z: 1.8, yaw: -0.08, roll: 0.75 },
+  { x: -1.05, z: 3.05, yaw: -0.06, roll: 0.95 },
+  { x: 1.55, z: 3.15, yaw: 0.07, roll: 0.85 },
 ];
 // on a tall, narrow screen the sides of the desk are out of frame: two rows in front instead
 const LAYOUT_NARROW = [
@@ -33,12 +36,18 @@ const LAYOUT_NARROW = [
 const ENV_NARROW = { x: 0.9, z: 4.35, ry: -0.08 };
 // the four cans packed two by two inside the box (relative to the box)
 // (measured: each can spans 1.93 along x; the box is 4.1 inside, so 0.06 clear at each wall and between)
+// the front pair go to the front row first; the back pair then pass over them once they're down
 const PACKED = [
-  { x: -0.91, z: -0.52 },
-  { x: 1.08, z: -0.52 },
   { x: -0.91, z: 0.52 },
   { x: 1.08, z: 0.52 },
+  { x: -0.91, z: -0.52 },
+  { x: 1.08, z: -0.52 },
 ];
+// the order they're lifted out, and each one carried a little higher than the one before, so no
+// two are ever at the same place at once (checked frame by frame against every pair, both layouts)
+const LAUNCH = [1, 0, 3, 2];
+const LAUNCH_GAP = 0.5;
+const LIFT_STEP = 0.5;
 
 function tickMark() {
   const [c, g] = canvas(256, 256);
@@ -63,7 +72,7 @@ function tickMark() {
 function settleOpen(p, at) {
   p.group.position.set(at.x, 0, at.z);
   p.twine.visible = false;
-  p.lid.position.set(LID.x - at.x, 0.35, LID.z - at.z);
+  p.lid.position.set(LID.x - at.x, LID_Y, LID.z - at.z);
   p.lid.rotation.y = LID.ry;
 }
 
@@ -78,11 +87,11 @@ const LIFT = 2.0; // how high a can is raised before it travels: well clear of t
  * Where a can is at progress t (0 packed, 1 on the desk): straight up out of the box,
  * across, then set down, with the phases overlapping a little so it never stops dead.
  */
-function canPath(t, a, L) {
+function canPath(t, a, L, lift = LIFT) {
   const up = 1 - (1 - clamp01(t / 0.3)) ** 3;
   const move = smooth(clamp01((t - 0.24) / 0.52));
   const down = smooth(clamp01((t - 0.7) / 0.3));
-  const y = (a.y + (LIFT - a.y) * up) * (1 - down);
+  const y = (a.y + (lift - a.y) * up) * (1 - down);
   return { x: a.x + (L.x - a.x) * move, y, z: a.z + (L.z - a.z) * move, turn: move };
 }
 
@@ -167,13 +176,14 @@ export function deskScene(stage, app) {
     const s = { h: 0, to: 0, t: st.letterRead ? 1 : 0, drop: 0 };
     rolls.push({ holder, can, s, roll, i });
   });
-  const packedAt = (i) => ({ x: BOX.x + PACKED[i].x, y: 0.05, z: BOX.z + PACKED[i].z });
+  // packed: resting on the tissue in the bottom of the box (floor 0.05, tissue up to 0.035 over it)
+  const packedAt = (i) => ({ x: BOX.x + PACKED[i].x, y: 0.075, z: BOX.z + PACKED[i].z });
   stage.onFrame((dt, t) => {
     for (const r of rolls) {
       const { s, holder, can, i } = r;
       s.h = damp(s.h, s.to, 9, dt);
       const L = spot(i), a = packedAt(i);
-      const p = canPath(s.t, a, L);
+      const p = canPath(s.t, a, L, LIFT + LAUNCH.indexOf(i) * LIFT_STEP);
       const nudge = s.t < 1 || opened.has(i) ? 0 : Math.max(0, Math.sin(t * 1.4 - i * 1.6)) ** 14;
       // a small hop while it is moved to the middle, so it is carried, not dragged
       const hop = Math.sin(Math.PI * gather[i].v) * 0.32;
@@ -193,8 +203,9 @@ export function deskScene(stage, app) {
       const L = spot(i);
       m.position.set(L.x + 0.1, 0.012, L.z + 0.8);
     }
-    const L2 = spot(2);
-    invitePoint.set(L2.x - 0.85, 0.9, L2.z);
+    // over the back row, just behind the first can, so the tag never sits on a label
+    const L0 = spot(0);
+    invitePoint.set(L0.x - 0.11, 1.05, L0.z - 0.55);
   });
   const makePickable = () => {
     for (const { holder, s, roll, i } of rolls) {
@@ -241,9 +252,9 @@ export function deskScene(stage, app) {
     }
   });
   const envOnTop = () => {
-    env.position.set(BOX.x - 0.15, 1.055, BOX.z + 0.05);
+    env.position.set(BOX.x - 0.15, 1.067, BOX.z + 0.05);
     env.rotation.y = -0.08;
-    envLift.base = 1.055; // resting on the cans, under the lid
+    envLift.base = 1.067; // resting on the cans (on their felt lips, the highest point), under the lid
   };
   const envAside = () => {
     envLift.base = 0.011;
@@ -272,13 +283,16 @@ export function deskScene(stage, app) {
       }
       if (first) {
         // each can raised straight out, carried across and set down, one after another
+        let landed = 0;
         rolls.forEach(({ s }, i) => {
+          const k = LAUNCH.indexOf(i);
           gsap.to(s, {
-            t: 1, duration: 1.45, delay: 2.0 + i * 0.38, ease: 'none',
-            onStart: () => sfx.tick(0.55 + i * 0.05, 0.16),
+            // the first can comes up only once the envelope has been carried clear of the box
+            t: 1, duration: 1.45, delay: 2.6 + k * LAUNCH_GAP, ease: 'none',
+            onStart: () => sfx.tick(0.55 + k * 0.05, 0.16),
             onComplete: () => {
               sfx.tick(0.38, 0.22);
-              if (i === 3) done();
+              if (++landed === rolls.length) done();
             },
           });
         });
@@ -318,7 +332,8 @@ export function deskScene(stage, app) {
     tl.to(lid.rotation, { y: 0, duration: 0.8, ease: 'power2.inOut' }, '<');
     tl.to(lid.position, { x: 0, z: 0, duration: 0.8, ease: 'power2.inOut' }, '-=0.2');
     tl.to(lid.position, { y: box.H + 0.03, duration: 0.3, ease: 'power2.in', onComplete: () => sfx.tick(0.32, 0.2) });
-    tl.to(box.group.position, { y: 0.22, duration: 0.4, ease: 'power2.out' }, '+=0.15');
+    // lifted clear of everything on the desk (the mug is the tallest) before it's carried off
+    tl.to(box.group.position, { y: 1.25, duration: 0.55, ease: 'power2.out' }, '+=0.15');
     tl.to(box.group.rotation, { z: 0.025, x: -0.02, duration: 0.4, ease: 'power2.out' }, '<');
     tl.to(box.group.position, { x: AWAY.x, z: AWAY.z, duration: 1.5, ease: 'power2.in', onStart: () => sfx.paper() });
     tl.to(box.group.rotation, { y: -0.12, duration: 1.5, ease: 'power1.in' }, '<');
@@ -387,7 +402,7 @@ export function deskScene(stage, app) {
     tl.to(lid.rotation, { x: -0.14, z: 0.05, duration: 0.6, ease: 'power2.out' }, '<');
     tl.to(lid.position, { x: LID.x - BOX.x, z: LID.z - BOX.z, duration: 0.95, ease: 'power2.inOut' }, '-=0.1');
     tl.to(lid.rotation, { y: LID.ry, x: 0.06, z: -0.03, duration: 0.95, ease: 'power2.inOut' }, '<');
-    tl.to(lid.position, { y: 0.35, duration: 0.45, ease: 'power2.in' }, '-=0.2');
+    tl.to(lid.position, { y: LID_Y, duration: 0.45, ease: 'power2.in' }, '-=0.2');
     tl.to(lid.rotation, { x: 0, z: 0, duration: 0.45, ease: 'power2.in', onComplete: () => sfx.tick(0.4, 0.2) }, '<');
     // only once the lid is off to the side can the letter underneath be reached
     tl.add(() => {
@@ -588,7 +603,14 @@ export function pickupScene(stage, app) {
 
   const box = parcel();
   stage.world.add(box.group);
-  settleOpen(box, { x: 2.6, z: -2.9 });
+  // the empty box, put away the way boxes are: standing in its own lid, turned over under it.
+  // Turned end on, it fits the gap between the mug (and its handle) and the tape
+  box.group.position.set(2.3, 0.06, -3.3);
+  box.group.rotation.y = Math.PI / 2 + 0.06;
+  box.twine.visible = false;
+  box.lid.rotation.set(Math.PI, 0.0, 0);
+  box.lid.scale.setScalar(1.012); // a hair larger than the box, so the walls never touch
+  box.lid.position.set(0, -0.03, 0); // its top flat on the desk, the skirt up round the box
 
   // the print wallet lies on the desk (its own height is half its thickness: it sits on its base)
   const wallet = printEnvelope(ROLLS[STILL].name);
@@ -621,8 +643,10 @@ export function pickupScene(stage, app) {
       tilt = -Math.atan2(inY - outY, half * 2);
       y = (inY + outY) / 2;
     } else {
-      x = mouth + 0.55 + k * fan;
-      y = PAPER / 2 + (k - 1) * PAPER;
+      // the spread starts past the end of the first print (which slopes down from the mouth to the
+      // desk), each one lying on the one before
+      x = mouth + 0.9 + k * fan;
+      y = PAPER / 2 + (k - 1) * PAPER * 1.15;
       tilt = 0;
     }
     card.position.set(x, y, WALLET.z - 0.1 - k * 0.05);
@@ -631,7 +655,9 @@ export function pickupScene(stage, app) {
     cards.push(card);
     // drawn out of the envelope: slid along at the mouth's height, then let down onto the desk
     const end = { x, y };
-    card.position.set(WALLET.x + 0.2, WALLET.t / 2, card.position.z);
+    // each comes out in its own layer, over the ones already out, still inside the wallet's height
+    const slideY = k ? WALLET.t / 2 + 0.004 + k * 0.0055 : WALLET.t / 2;
+    card.position.set(WALLET.x + 0.2, slideY, card.position.z);
     const r0 = card.rotation.z;
     card.rotation.z = 0;
     gsap.timeline({ delay: 0.6 + k * 0.18 })
@@ -639,7 +665,7 @@ export function pickupScene(stage, app) {
       .to(card.position, { y: end.y, duration: 0.35, ease: 'power2.in' }, '-=0.3')
       .to(card.rotation, { z: r0, duration: 0.35, ease: 'power2.in' }, '<');
   });
-  stage.keep = [...stage.corners(wallet, 0.1), new THREE.Vector3(mouth + 0.55 + picks.length * fan + 0.7, 0, WALLET.z)];
+  stage.keep = [...stage.corners(wallet, 0.1), new THREE.Vector3(mouth + 0.9 + picks.length * fan + 0.7, 0, WALLET.z)];
 
   const r = document.querySelector('#receipt');
   const rows = [

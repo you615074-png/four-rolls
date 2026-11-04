@@ -307,7 +307,17 @@ export function trayScene(stage, app) {
   const { tray: t, stack, timer: clock, tongs } = set;
   const trayHome = t.group.position.clone();
   const TRAY_HALF = 1.65; // half the tray's width: it rocks on one bottom edge, then the other
+  // the tongs rest on the tray's rim, so their resting place is kept in the tray's frame and
+  // goes with it when it's rocked
   const tongRest = { pos: tongs.position.clone(), q: tongs.quaternion.clone() };
+  stage.world.updateMatrixWorld(true);
+  const restInTray = t.group.matrixWorld.clone().invert().multiply(tongs.matrixWorld);
+  const restM = new THREE.Matrix4(), restS = new THREE.Vector3();
+  const restNow = () => {
+    t.group.updateMatrixWorld();
+    restM.copy(tongs.parent.matrixWorld).invert().multiply(t.group.matrixWorld).multiply(restInTray);
+    restM.decompose(tongRest.pos, tongRest.q, restS);
+  };
   const TONG_TIP = new THREE.Vector3(-0.62, 0, 0);
   const grip = { k: 0, p: null, jaw: 0 }; // how far the tongs have gone from rest to the print's corner, and how open
   const levelQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
@@ -420,7 +430,8 @@ export function trayScene(stage, app) {
     sfx.paper();
     hud.say(COPY.wait);
     hud.setCount(`PRINT ${k + 1} OF ${n} · 0%`);
-    const inTray = t.group.position.clone().setY(t.floorY + 0.02);
+    // just clear of the ribs, so the lower jaw of the tongs has room to slide in under it
+    const inTray = t.group.position.clone().setY(t.floorY + 0.035);
     gsap.timeline({
       onComplete: () => {
         // from here it lies in the tray and rocks with it
@@ -539,7 +550,11 @@ export function trayScene(stage, app) {
     // and the bath stays level under gravity while the tray tilts around it
     t.liquid.quaternion.copy(tiltQ.setFromAxisAngle(Z, -th)).multiply(levelQ);
     // the tongs: at rest on the rim, or holding the print's top edge
-    if (grip.p) {
+    restNow();
+    if (!grip.p) {
+      tongs.position.copy(tongRest.pos);
+      tongs.quaternion.copy(tongRest.q);
+    } else {
       // the jaws close on the print's top corner, in the print's own frame: the handle runs out
       // from the corner, the jaws either side of the paper (their gap along the print's normal)
       const g = grip.p.g;

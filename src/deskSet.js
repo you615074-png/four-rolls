@@ -443,7 +443,7 @@ export function parcel({ to = 'you' } = {}) {
   const tissue = new THREE.Mesh(new THREE.PlaneGeometry(W - 0.12, D - 0.12, 24, 14), std('#efe5d3', { roughness: 1, side: THREE.DoubleSide }));
   const pos = tissue.geometry.attributes.position;
   const r = rng(8);
-  for (let i = 0; i < pos.count; i++) pos.setZ(i, r() * 0.08);
+  for (let i = 0; i < pos.count; i++) pos.setZ(i, r() * 0.018); // soft, but the cans lie on it, not in it
   tissue.geometry.computeVertexNormals();
   tissue.rotation.x = -Math.PI / 2;
   tissue.position.y = 0.06;
