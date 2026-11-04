@@ -243,6 +243,7 @@ export function parcel({ to = 'you' } = {}) {
   strand(0.045, H + 0.1, 0.025, 0.35, y / 2, -LD / 2 - 0.02);
   strand(0.025, H + 0.1, 0.045, LW / 2 + 0.02, y / 2, 0);
   strand(0.025, H + 0.1, 0.045, -LW / 2 - 0.02, y / 2, 0);
+  const bow = [];
   for (const s of [-1, 1]) {
     const loop = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.022, 8, 24), cord);
     loop.rotation.x = Math.PI / 2;
@@ -250,14 +251,16 @@ export function parcel({ to = 'you' } = {}) {
     loop.position.set(0.35 + s * 0.2, y + 0.03, 0);
     loop.rotation.z = s * 0.35;
     twine.add(loop);
+    bow.push(loop);
     const tail = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.02, 0.42), cord);
     tail.position.set(0.35 + s * 0.12, y + 0.01, 0.24);
     tail.rotation.y = s * 0.5;
     twine.add(tail);
+    bow.push(tail);
   }
   g.add(twine);
   shadowed(g);
-  return { group: g, lid, twine, cord, W, D, H };
+  return { group: g, lid, twine, bow, cord, W, D, H };
 }
 
 /* ---------- the letter's envelope ---------- */
@@ -480,10 +483,10 @@ export function buildDesk(stage, { lampAim = [0.3, 0, 0.4] } = {}) {
   cup.position.set(-1.4, 0, -2.75);
   stage.world.add(cup);
   const tape = tapeRoll(0);
-  tape.position.set(4.3, 0.09, 2.55);
+  tape.position.set(4.65, 0.09, -1.95);
   stage.world.add(tape);
   const tape2 = tapeRoll(1);
-  tape2.position.set(4.95, 0.09, 2.2);
+  tape2.position.set(4.05, 0.09, -2.5);
   stage.world.add(tape2);
   return { lamp, cup };
 }

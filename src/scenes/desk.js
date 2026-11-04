@@ -12,15 +12,25 @@ const STILL = 3;
 
 // where things sit on the desk
 const BOX = { x: 0.3, z: -0.15 }; // the parcel, until it's unpacked
-const SHELF = { x: 2.3, z: -2.55 }; // pushed to the back once it's empty
+// once it's empty the box is carried off past the top of the frame, on a line that misses the mug and the pen
+const AWAY = { x: 2.6, z: -7.6 };
 const LID = { x: -3.9, z: -2.0, ry: 0.22 }; // the lid, set down beside it
 const ENV_ASIDE = { x: -3.85, z: 2.35, ry: 0.18 };
 const LAYOUT = [
-  { x: -2.55, z: 0.55, yaw: 0.3, roll: 1.0 },
-  { x: -0.95, z: 2.1, yaw: -0.2, roll: 0.75 },
-  { x: 1.2, z: 0.6, yaw: 0.14, roll: 0.95 },
-  { x: 2.5, z: 2.2, yaw: -0.12, roll: 0.85 },
+  // every roll lands clear of where the box stood, so nothing passes through it
+  { x: -2.3, z: 0.45, yaw: 0.35, roll: 1.0 },
+  { x: -0.4, z: 2.05, yaw: -0.2, roll: 0.75 },
+  { x: 2.0, z: 1.75, yaw: 0.12, roll: 0.95 },
+  { x: 3.75, z: 2.65, yaw: -0.1, roll: 0.85 },
 ];
+// on a tall, narrow screen the sides of the desk are out of frame: two rows in front instead
+const LAYOUT_NARROW = [
+  { x: 0.12, z: 1.75, yaw: 0.05, roll: 1.0 },
+  { x: 2.22, z: 1.85, yaw: -0.05, roll: 0.75 },
+  { x: 0.02, z: 3.1, yaw: -0.04, roll: 0.95 },
+  { x: 2.3, z: 3.2, yaw: 0.06, roll: 0.85 },
+];
+const ENV_NARROW = { x: 0.9, z: 4.35, ry: -0.08 };
 // the four cans packed two by two inside the box (relative to the box)
 const PACKED = [
   { x: -0.95, z: -0.5 },
@@ -57,11 +67,30 @@ function settleOpen(p, at) {
 }
 
 const goEdit = () => (location.href = './edit.html');
+const clamp01 = (v) => Math.min(1, Math.max(0, v));
+const smooth = (v) => v * v * (3 - 2 * v);
+const VIEW = { py: 8.2, pz: 5.6, tz: 0.35 };
+const LIFT = 2.0; // how high a can is raised before it travels: well clear of the walls
+
+/**
+ * Where a can is at progress t (0 packed, 1 on the desk): straight up out of the box,
+ * across, then set down, with the phases overlapping a little so it never stops dead.
+ */
+function canPath(t, a, L) {
+  const up = 1 - (1 - clamp01(t / 0.3)) ** 3;
+  const move = smooth(clamp01((t - 0.24) / 0.52));
+  const down = smooth(clamp01((t - 0.7) / 0.3));
+  const y = (a.y + (LIFT - a.y) * up) * (1 - down);
+  return { x: a.x + (L.x - a.x) * move, y, z: a.z + (L.z - a.z) * move, turn: move };
+}
 
 /* ---------- the desk: a parcel, a letter on top, four rolls underneath ---------- */
 
 export function deskScene(stage, app) {
   const st = app.state;
+  const narrow = stage.camera.aspect < 1.05;
+  const layout = narrow ? LAYOUT_NARROW : LAYOUT;
+  const aside = narrow ? ENV_NARROW : ENV_ASIDE;
   const opened = st.visited;
   const counted = () => `${opened.size} OF 4 OPENED`;
   const status = () => (!st.parcelOpen ? '1 PARCEL' : !st.letterRead ? '1 LETTER' : counted());
@@ -69,7 +98,8 @@ export function deskScene(stage, app) {
   stage.view({ pos: [0.3, 8.2, 5.6], target: [0.3, 0, 0.35], fov: 34 });
   stage.parallaxAmount = 0.18;
   if (!st.parcelOpen) gsap.from(stage.rig, { py: 10.5, pz: 7.6, duration: 2.6, ease: 'power2.out' });
-  buildDesk(stage);
+  // on a narrow screen the rolls sit further forward, so the lamp leans that way
+  buildDesk(stage, { lampAim: narrow ? [0.7, 0, 1.9] : [0.3, 0, 0.4] });
 
   // the sender's notebook: where the parcel gets packed (a separate page)
   const book = notebook();
@@ -112,12 +142,14 @@ export function deskScene(stage, app) {
     for (const r of rolls) {
       const { s, holder, can, i } = r;
       s.h = damp(s.h, s.to, 9, dt);
-      const L = LAYOUT[i], a = packedAt(i);
-      const e = s.t * s.t * (3 - 2 * s.t);
+      const L = layout[i], a = packedAt(i);
+      const p = canPath(s.t, a, L);
       const nudge = s.t < 1 || opened.has(i) ? 0 : Math.max(0, Math.sin(t * 1.4 - i * 1.6)) ** 14;
-      holder.position.set(a.x + (L.x - a.x) * e, a.y * (1 - e) + Math.sin(Math.PI * s.t) * 1.7 + s.drop + s.h * 0.24, a.z + (L.z - a.z) * e);
-      holder.rotation.y = L.yaw * e + s.h * 0.1;
-      can.rotation.y = L.roll * e + nudge * 0.25 + s.h * 0.15;
+      holder.position.set(p.x, p.y + s.drop + s.h * 0.24, p.z);
+      holder.rotation.y = L.yaw * p.turn + s.h * 0.1;
+      // a small sway while it's in the air, gone by the time it lands
+      holder.rotation.x = Math.sin(Math.PI * p.turn) * 0.08;
+      can.rotation.y = L.roll * p.turn + nudge * 0.25 + s.h * 0.15;
       // packed cans stay out of sight under the lid
       holder.visible = st.parcelOpen || s.t > 0;
     }
@@ -135,11 +167,11 @@ export function deskScene(stage, app) {
       });
       if (opened.has(i)) {
         const tick = tickMark();
-        tick.position.set(LAYOUT[i].x + 0.1, 0.012, LAYOUT[i].z + 0.8);
+        tick.position.set(layout[i].x + 0.1, 0.012, layout[i].z + 0.8);
         stage.world.add(tick);
       }
     }
-    if (!opened.size) invite = stage.anchor(new THREE.Vector3(LAYOUT[2].x - 0.85, 0.9, LAYOUT[2].z), 'tap a roll to open it', { dy: -26 });
+    if (!opened.size) invite = stage.anchor(new THREE.Vector3(layout[2].x - 0.85, 0.9, layout[2].z), 'tap a roll to open it', { dy: -26 });
   };
 
   const ready = () => {
@@ -161,8 +193,8 @@ export function deskScene(stage, app) {
     envLift.base = 1.02;
   };
   const envAside = () => {
-    env.position.set(ENV_ASIDE.x, 0.011, ENV_ASIDE.z);
-    env.rotation.y = ENV_ASIDE.ry;
+    env.position.set(aside.x, 0.011, aside.z);
+    env.rotation.y = aside.ry;
     envLift.base = 0.011;
   };
   let letterGuide = null;
@@ -175,20 +207,33 @@ export function deskScene(stage, app) {
     showLetter(() => {
       const first = !st.letterRead;
       st.letterRead = true;
-      // the envelope goes to the corner of the desk
-      gsap.to(envLift, { base: 0.011, duration: 0.9, ease: 'power2.inOut' });
-      gsap.to(env.position, { x: ENV_ASIDE.x, z: ENV_ASIDE.z, duration: 0.9, ease: 'power3.inOut' });
-      gsap.to(env.rotation, { y: ENV_ASIDE.ry, duration: 0.9, ease: 'power3.inOut' });
+      // the envelope is lifted clear of the box, carried to the corner, then laid down
+      if (envLift.base > 0.5) {
+        const et = gsap.timeline();
+        et.to(envLift, { base: 1.7, duration: 0.45, ease: 'power2.out' });
+        et.to(env.position, { x: aside.x, z: aside.z, duration: 0.85, ease: 'power2.inOut' }, '-=0.1');
+        et.to(env.rotation, { y: aside.ry, duration: 0.85, ease: 'power2.inOut' }, '<');
+        et.to(envLift, { base: 0.011, duration: 0.4, ease: 'power2.in', onComplete: () => sfx.paper() }, '-=0.15');
+      }
       if (first) {
-        // each can lifted out and set down on the desk, then the empty box pushed back
+        // each can raised straight out, carried across and set down, one after another
         rolls.forEach(({ s }, i) => {
-          gsap.to(s, { t: 1, duration: 1.1, delay: 0.5 + i * 0.22, ease: 'power1.inOut', onStart: () => sfx.tick(0.55 + i * 0.05, 0.16), onComplete: () => i === 3 && done() });
+          gsap.to(s, {
+            t: 1, duration: 1.45, delay: 1.0 + i * 0.38, ease: 'none',
+            onStart: () => sfx.tick(0.55 + i * 0.05, 0.16),
+            onComplete: () => {
+              sfx.tick(0.38, 0.22);
+              if (i === 3) done();
+            },
+          });
         });
+        // the camera eases back out to take in the whole desk
+        gsap.to(stage.rig, { ...VIEW, duration: 2.4, delay: 0.8, ease: 'power2.inOut', overwrite: 'auto' });
         const done = () => {
-          gsap.to(box.group.position, { x: SHELF.x, z: SHELF.z, duration: 0.9, ease: 'power3.inOut' });
           makePickable();
-          hud.toast('four rolls, out of the box', { kicker: 'the parcel', line: 'open any one, in any order', hold: 2.4 });
           ready();
+          // the card comes once the box is gone, not over the top of it
+          takeBoxAway(() => hud.toast('four rolls, out of the box', { kicker: 'the parcel', line: 'open any one, in any order', hold: 2.4 }));
         };
       } else ready();
     });
@@ -200,20 +245,52 @@ export function deskScene(stage, app) {
     click: readLetter,
   });
 
+  /* the empty box: lid back on, lifted a little, carried off the top of the frame */
+  const takeBoxAway = (then) => {
+    const lid = box.lid;
+    const tl = gsap.timeline({ delay: 0.3 });
+    tl.to(lid.position, { y: box.H + 1.0, duration: 0.45, ease: 'power2.out' });
+    tl.to(lid.rotation, { y: 0, duration: 0.8, ease: 'power2.inOut' }, '<');
+    tl.to(lid.position, { x: 0, z: 0, duration: 0.8, ease: 'power2.inOut' }, '-=0.2');
+    tl.to(lid.position, { y: box.H + 0.03, duration: 0.3, ease: 'power2.in', onComplete: () => sfx.tick(0.32, 0.2) });
+    tl.to(box.group.position, { y: 0.22, duration: 0.4, ease: 'power2.out' }, '+=0.15');
+    tl.to(box.group.rotation, { z: 0.025, x: -0.02, duration: 0.4, ease: 'power2.out' }, '<');
+    tl.to(box.group.position, { x: AWAY.x, z: AWAY.z, duration: 1.5, ease: 'power2.in', onStart: () => sfx.paper() });
+    tl.to(box.group.rotation, { y: -0.12, duration: 1.5, ease: 'power1.in' }, '<');
+    tl.add(() => {
+      box.group.visible = false;
+      then?.();
+    });
+  };
+
   /* the parcel itself */
   const untie = () => {
     if (st.parcelOpen) return;
     st.parcelOpen = true;
+    stage.unpick(box.group);
     parcelGuide?.hide();
     hud.say(null);
-    sfx.paper();
-    gsap.to(box.cord, { opacity: 0, duration: 0.5 });
-    gsap.to(box.twine.position, { y: 0.4, duration: 0.6, ease: 'power2.out', onComplete: () => (box.twine.visible = false) });
-    const tl = gsap.timeline({ delay: 0.35 });
-    tl.to(box.lid.position, { y: box.H + 1.3, duration: 0.6, ease: 'power2.out', onStart: () => sfx.paper() });
-    tl.to(box.lid.position, { x: LID.x - BOX.x, z: LID.z - BOX.z, duration: 0.8, ease: 'power2.inOut' });
-    tl.to(box.lid.rotation, { y: LID.ry, duration: 0.8, ease: 'power2.inOut' }, '<');
-    tl.to(box.lid.position, { y: 0.35, duration: 0.45, ease: 'bounce.out', onComplete: () => sfx.tick(0.4, 0.2) });
+    // lean in a little while it's opened
+    gsap.to(stage.rig, { py: 7.0, pz: 4.5, tz: 0.05, duration: 1.8, ease: 'power2.inOut', overwrite: 'auto' });
+    // the bow is pulled loose, the string slackens, lifts clear and is drawn off to the side
+    const tl = gsap.timeline();
+    tl.add(() => sfx.paper());
+    tl.to(box.bow.map((m) => m.scale), { x: 0.05, y: 0.05, z: 0.05, duration: 0.4, ease: 'power2.in', stagger: 0.04 });
+    tl.to(box.bow.map((m) => m.rotation), { y: '+=1.2', duration: 0.4, ease: 'power2.in', stagger: 0.04 }, '<');
+    tl.to(box.twine.scale, { x: 1.07, z: 1.09, duration: 0.3, ease: 'power1.out' });
+    tl.to(box.twine.position, { y: 1.45, duration: 0.6, ease: 'power2.inOut' }, '-=0.1');
+    tl.to(box.twine.position, { x: 4.5, y: 2.2, duration: 0.55, ease: 'power2.in' });
+    tl.to(box.cord, { opacity: 0, duration: 0.35, ease: 'power1.in' }, '-=0.35');
+    tl.add(() => (box.twine.visible = false));
+    // then the lid: lifted with a slight tilt, carried to the side, set down flat
+    const lid = box.lid;
+    tl.add(() => sfx.paper(), '-=0.5');
+    tl.to(lid.position, { y: box.H + 1.05, duration: 0.6, ease: 'power2.out' }, '-=0.5');
+    tl.to(lid.rotation, { x: -0.14, z: 0.05, duration: 0.6, ease: 'power2.out' }, '<');
+    tl.to(lid.position, { x: LID.x - BOX.x, z: LID.z - BOX.z, duration: 0.95, ease: 'power2.inOut' }, '-=0.1');
+    tl.to(lid.rotation, { y: LID.ry, x: 0.06, z: -0.03, duration: 0.95, ease: 'power2.inOut' }, '<');
+    tl.to(lid.position, { y: 0.35, duration: 0.45, ease: 'power2.in' }, '-=0.2');
+    tl.to(lid.rotation, { x: 0, z: 0, duration: 0.45, ease: 'power2.in', onComplete: () => sfx.tick(0.4, 0.2) }, '<');
     tl.add(() => {
       hud.setCount(status());
       hud.say(COPY.letterWaits);
@@ -235,7 +312,7 @@ export function deskScene(stage, app) {
     hud.say(COPY.letterWaits);
     letterGuide = stage.anchor(new THREE.Vector3(BOX.x - 0.15, 1.3, BOX.z + 0.05), 'a letter, on top', { dy: -30 });
   } else {
-    settleOpen(box, SHELF);
+    box.group.visible = false;
     envAside();
     rolls.forEach(({ s }, i) => {
       s.drop = 0.6;
