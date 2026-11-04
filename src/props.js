@@ -81,6 +81,12 @@ export function canister(roll) {
   const knob = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.06, 24), metal);
   knob.position.y = h + 0.18;
   g.add(knob);
+  // a tab on the winding knob, so you can see the spool turn
+  const tab = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.04, 0.24), metal);
+  tab.position.y = 0.045;
+  knob.add(tab);
+  // the spool and its knob turn inside; the shell, its label and the mouth stay put
+  g.userData.spool = [spool, knob];
   // the felt-lipped mouth the film comes out of
   const lip = new THREE.Mesh(new THREE.BoxGeometry(0.1, h - 0.4, 0.08), std('#141010'));
   lip.position.set(r - 0.01, h / 2, -0.02);

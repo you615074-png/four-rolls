@@ -40,6 +40,8 @@ export function wallScene(stage, app) {
   stage.parallaxAmount = 0.2;
   const W = { x: 0, y: 3, z: -6 };
   stage.view({ pos: [-0.2, 3.0, 1.6], target: [-0.2, 3.0, -6], fov: 40 });
+  // arriving from the line: still a little low, the board rising into view, then the slow push-in
+  gsap.from(stage.rig, { py: 1.8, ty: 2.2, duration: 1.3, ease: 'power3.out' });
   gsap.to(stage.rig, { pz: 0.7, duration: 14, ease: 'sine.inOut' });
   stage.light({ pos: [-2.2, 6.2, -1.2], target: [0.2, 2.8, -6], intensity: 80, angle: 0.8, hemi: 0.35 });
   stage.key.color.set('#ffd29a');
@@ -85,6 +87,7 @@ export function wallScene(stage, app) {
   const note = add(new THREE.Mesh(new THREE.PlaneGeometry(1.9, 1.25), new THREE.MeshStandardMaterial({ map: indexCardTexture(roll, picks.length), roughness: 0.9 })), -3.05, -0.55, -0.05);
   taped(-3.05, -0.55, -0.05, 1.9, 1.25, 0.02);
 
+  const framed = [label, note];
   const spots = [[-0.9, 1.0, 0.06], [0.75, 1.15, -0.05], [-0.7, -0.75, -0.04], [0.95, -0.6, 0.07], [2.45, 0.35, -0.08], [2.55, -1.55, 0.05]];
   picks.forEach((frameIndex, k) => {
     const [x, y, rot] = spots[k % spots.length];
@@ -105,7 +108,11 @@ export function wallScene(stage, app) {
       map: cardTexture({ w: 320, h: 120, bg: '#f2ead6', lines: [{ text: `${when} · ${frame.title.toLowerCase()}`, font: `36px ${FONT.hand}`, x: 18, y: 76, color: '#2d3e5c' }] }),
     }));
     add(tag, x + 0.55, y - 0.78, rot * 1.6, z + 0.03);
+    framed.push(card, tag);
   });
+  // the slow push-in never crops what's on the board: every print, its tape and its tag stay in frame
+  const keepPts = framed.flatMap((o) => stage.corners(o, 0.12)).map((p) => p.setZ(W.z));
+  stage.keep = keepPts;
   void label;
   void note;
 
@@ -121,6 +128,8 @@ export function wallScene(stage, app) {
   const open = () => {
     if (opened) return;
     opened = true;
+    // the prints are taken down and put away on the desk: the camera drops toward it
+    gsap.to(stage.rig, { py: 1.4, ty: 0.6, pz: 2.4, duration: 0.7, ease: 'power2.in', overwrite: true });
     app.go('pickup');
   };
   stage.onEmptyClick = open;

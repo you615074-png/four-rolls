@@ -184,39 +184,52 @@ function lidTexture(to) {
   return canvasTexture(c);
 }
 
-/**
- * One loop of string round the box. Its rest shape is a polyline with rounded corners;
- * `pull(q, hand, slack)` draws it with q units already pulled out through the knot toward
- * the hand: the rest of the cord slides back along its own path, so its free end comes
- * round the box and out from underneath, and nothing passes through the box.
- */
-class StringStrand {
-  constructor(corners, center, dir, r = 0.0125) {
-    this.r = r;
-    this.center = center;
-    this.dir = dir.clone().normalize();
-    // dense samples along the straight runs, then corner cutting rounds every bend
-    let pts = [];
-    for (let i = 0; i < corners.length - 1; i++) {
-      const a = corners[i], b = corners[i + 1];
-      const n = Math.max(1, Math.ceil(a.distanceTo(b) / 0.06));
-      for (let k = 0; k < n; k++) pts.push(a.clone().lerp(b, k / n));
-    }
-    pts.push(corners.at(-1).clone());
-    for (let it = 0; it < 3; it++) {
-      const next = [pts[0]];
-      for (let i = 0; i < pts.length - 1; i++) {
-        next.push(pts[i].clone().lerp(pts[i + 1], 0.25), pts[i].clone().lerp(pts[i + 1], 0.75));
-      }
-      next.push(pts.at(-1));
-      pts = next;
-    }
+/* ---------- the string: one cord, tracked by arc length ---------- */
+
+const V = (x, y, z) => new THREE.Vector3(x, y, z);
+
+/** Points at even arc-length spacing `ds` along a polyline (keeps both ends). */
+function resample(pts, ds) {
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + pts[i].distanceTo(pts[i - 1]));
+  const L = cum.at(-1);
+  const n = Math.max(1, Math.round(L / ds));
+  const out = [];
+  let j = 1;
+  for (let k = 0; k <= n; k++) {
+    const u = (L * k) / n;
+    while (j < cum.length - 1 && cum[j] < u) j++;
+    const t = (u - cum[j - 1]) / Math.max(1e-9, cum[j] - cum[j - 1]);
+    out.push(pts[j - 1].clone().lerp(pts[j], t));
+  }
+  return out;
+}
+const lengthOf = (pts) => pts.reduce((a, p, i) => (i ? a + p.distanceTo(pts[i - 1]) : 0), 0);
+
+/** A polyline with rounded corners (corner cutting), densely sampled. */
+function rounded(corners, step = 0.05) {
+  let pts = [];
+  for (let i = 0; i < corners.length - 1; i++) {
+    const n = Math.max(1, Math.ceil(corners[i].distanceTo(corners[i + 1]) / step));
+    for (let k = 0; k < n; k++) pts.push(corners[i].clone().lerp(corners[i + 1], k / n));
+  }
+  pts.push(corners.at(-1).clone());
+  for (let it = 0; it < 3; it++) {
+    const next = [pts[0]];
+    for (let i = 0; i < pts.length - 1; i++) next.push(pts[i].clone().lerp(pts[i + 1], 0.25), pts[i].clone().lerp(pts[i + 1], 0.75));
+    next.push(pts.at(-1));
+    pts = next;
+  }
+  return pts;
+}
+
+/** A path with a sampler by arc length. */
+class Path {
+  constructor(pts) {
     this.pts = pts;
     this.cum = [0];
     for (let i = 1; i < pts.length; i++) this.cum.push(this.cum[i - 1] + pts[i].distanceTo(pts[i - 1]));
     this.len = this.cum.at(-1);
-    this.knot = pts[0].clone();
-    this.state = { q: 0, slack: 0 };
   }
   at(u, out = new THREE.Vector3()) {
     u = Math.min(this.len, Math.max(0, u));
@@ -226,39 +239,182 @@ class StringStrand {
       if (this.cum[m] < u) lo = m + 1;
       else hi = m;
     }
-    const t = (u - this.cum[lo - 1]) / Math.max(1e-6, this.cum[lo] - this.cum[lo - 1]);
+    const t = (u - this.cum[lo - 1]) / Math.max(1e-9, this.cum[lo] - this.cum[lo - 1]);
     return out.copy(this.pts[lo - 1]).lerp(this.pts[lo], t);
   }
-  points() {
-    const { q, slack } = this.state;
-    // the hand draws the cord out along `dir`; what's out spans hand to knot, with a little sag
-    const hand = this.knot.clone().addScaledVector(this.dir, q * 0.93);
-    const n = 200, out = [];
+}
+
+/** A curve from a to b of exactly `len`, hanging under gravity (a parabola whose sag is solved for the length). */
+function hanging(a, b, len, n = 40) {
+  const make = (h) => {
+    const pts = [];
     for (let k = 0; k <= n; k++) {
-      const s = (this.len * k) / n;
-      if (s < q) {
-        const f = s / q;
-        const p = hand.clone().lerp(this.knot, f);
-        p.y -= Math.sin(Math.PI * f) * Math.min(0.3, q * 0.04);
-        out.push(p);
-        continue;
-      }
-      const p = this.at(s - q);
-      if (slack) {
-        // loosened: the cord stands off the box a little, and bellies up along the top
-        const off = p.clone().sub(this.center).normalize();
-        p.addScaledVector(off, slack * 0.03);
-      }
-      out.push(p);
+      const t = k / n;
+      const p = a.clone().lerp(b, t);
+      p.y -= 4 * h * t * (1 - t);
+      pts.push(p);
     }
+    return pts;
+  };
+  if (a.distanceTo(b) >= len) return make(0);
+  let lo = 0, hi = len;
+  for (let it = 0; it < 22; it++) {
+    const h = (lo + hi) / 2;
+    if (lengthOf(make(h)) > len) hi = h;
+    else lo = h;
+  }
+  return make((lo + hi) / 2);
+}
+
+/** One bow loop of perimeter `p` (≈0.9 when tied), lying on the lid, both ends at the knot. */
+function bowLoop(K, side, f, lift = 0) {
+  const A = 0.17 * f, B = 0.11 * f, pts = [];
+  for (let k = 0; k <= 24; k++) {
+    const th = (k / 24) * Math.PI * 2;
+    pts.push(V(K.x + side * (1 - Math.cos(th)) * A, K.y + 0.02 * Math.sin(th / 2) * f + lift * Math.sin(th / 2), K.z + Math.sin(th) * B));
+  }
+  return pts;
+}
+const BOW_P = lengthOf(bowLoop(V(0, 0, 0), 1, 1));
+const TAIL = 0.46;
+
+/**
+ * The string round the parcel: two bands crossing at a knot; the first band's ends are the bow.
+ * Its state is driven by the scene:
+ *   draw  how much of the pulled tail has been drawn: first the near loop is used up, then the
+ *         knot lets go and the rest of the cord comes off the box after it
+ *   loose 0..1 the other loop and tail going slack once the knot is free
+ * Every frame the cord is laid out by arc length, so its total length stays the same; nothing
+ * goes below `floor` (the table, in the box's frame).
+ */
+class Twine {
+  constructor({ K, bands, floor, r = 0.0125, dir }) {
+    this.K = K;
+    this.r = r;
+    this.floor = floor;
+    this.dir = dir.clone().normalize();
+    this.bands = bands.map((pts) => new Path(rounded(pts)));
+    this.state = { draw: 0, loose: 0 };
+    this.side = 1; // the pulled loop and tail are on the right
+    this.tailDir = V(0.75, 0.12, 0.65).normalize();
+    this.otherTail = V(-0.45, 0, 0.9).normalize();
+    this.pulled = [0, 0];
+    this.bowP = BOW_P;
+  }
+  // the cord beyond the knot on the far side: the other loop and tail, tight or slack
+  farEnd(loose) {
+    const K = this.K, s = -this.side;
+    // a slack loop flattens onto the lid and lies longer and thinner: same perimeter, new shape
+    const loop = bowLoop(K, s, 1, 0).map((p) => {
+      const q = p.clone().sub(K);
+      q.x *= 1 + loose * 0.35;
+      q.z *= 1 - loose * 0.4;
+      q.y = THREE.MathUtils.lerp(q.y, -0.004, loose);
+      return K.clone().add(q);
+    });
+    const fit = BOW_P / lengthOf(loop);
+    for (const p of loop) p.sub(K).multiplyScalar(fit).add(K);
+    // the tail swings out a little as it goes limp, but stays its own length
+    const dir = this.otherTail.clone();
+    dir.x += s * loose * 0.25;
+    dir.normalize();
+    const tail = [K.clone(), K.clone().addScaledVector(dir, TAIL)];
+    return resample([...loop, ...tail.slice(1)], 0.02);
+  }
+  // where the hand is: the pulled tail's tip, then drawn on along `dir`
+  hand() {
+    const extra = Math.max(0, this.state.draw - BOW_P);
+    return this.K.clone().addScaledVector(this.tailDir, TAIL + Math.min(this.state.draw, BOW_P)).addScaledVector(this.dir, extra * 0.95);
+  }
+  farPathOf(i) {
+    const loose = this.state.loose;
+    const cache = (this.farCache ??= []);
+    if (cache[i]?.loose !== loose) {
+      const band = this.bands[i];
+      cache[i] = { loose, path: i ? band : new Path([...band.pts, ...this.farEnd(loose).slice(1)]) };
+    }
+    return cache[i].path;
+  }
+  // all of one band's cord, in order from the hand's end
+  points(i) {
+    const { draw } = this.state;
+    const K = this.K, far = this.farPathOf(i), out = [];
+    const released = draw > BOW_P;
+    // the crossing band is caught up by the knot as it rises: its end joins the hand gradually
+    let hand = this.hand();
+    if (i) hand = K.clone().lerp(hand, Math.min(1, Math.max(0, draw - BOW_P) / 1.2));
+    // how much of this band has come off the box through the knot
+    let pulled = 0, freeLen = 0;
+    if (i === 0) {
+      pulled = Math.max(0, draw - BOW_P);
+      freeLen = TAIL + Math.min(draw, BOW_P) + pulled;
+    } else if (released) {
+      // what's out of the crossing band is just what spans the gap to its end, with a little sag
+      freeLen = hand.distanceTo(K) * 1.03;
+      pulled = freeLen;
+    }
+    this.pulled[i] = pulled;
+    const onBox = far.len - pulled;
+    if (!released) {
+      if (i === 0) {
+        // still tied: the tail, drawn out of the near loop, straight from the knot; the loop
+        // gets smaller as its cord goes into the tail (same cord, same thickness)
+        out.push(...resample([hand, K.clone()], 0.02));
+        const f = Math.max(0, 1 - draw / BOW_P);
+        if (f > 0.02) out.push(...resample(bowLoop(K, this.side, f), 0.02).slice(1));
+        out.push(...resample(far.pts, 0.02).slice(1));
+      } else out.push(...resample(far.pts, 0.02));
+    } else {
+      // free: the cord hangs from the hand to where it leaves the box. Once it's all off, the whole
+      // cord trails from the hand, its end dragged along behind toward where it came from
+      let leave = K.clone(), len = freeLen;
+      if (onBox <= 0) {
+        len = far.len + (i ? 0 : TAIL + BOW_P);
+        const back = K.clone().sub(hand);
+        leave = hand.clone().addScaledVector(back.normalize(), Math.min(K.distanceTo(hand), len * 0.97));
+      }
+      out.push(...resample(hanging(hand, leave, len), 0.02));
+      if (onBox > 0) {
+        // the rest slides along its own path toward the knot, so the path stays filled from the knot
+        // to the free end, which retreats round the box; the last bit before that end flops loose
+        const n = Math.max(2, Math.ceil(onBox / 0.02));
+        for (let k = 1; k <= n; k++) {
+          const u = (onBox * k) / n;
+          const p = far.at(u);
+          const flop = Math.max(0, 1 - (onBox - u) / 0.8);
+          if (flop) p.y += 0.035 * Math.sin(Math.PI * flop) * Math.min(1, onBox / 0.8);
+          out.push(p);
+        }
+      }
+    }
+    const floor = this.floor + this.r;
+    for (const p of out) if (p.y < floor) p.y = floor;
     return out;
   }
-  geometry() {
-    return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(this.points()), 240, this.r, 6, false);
+  /** Whether band i still runs under the box (the box is resting on it). */
+  under(i) {
+    return this.farPathOf(i).len - (this.pulled[i] ?? 0) > this.bottomStart[i];
+  }
+  /** Total cord length of band i as laid out now (for checking it never stretches). */
+  length(i) {
+    return lengthOf(this.points(i));
+  }
+  /** Whether any of the cord is still over the box (top within its footprint). */
+  overBox(halfW, halfD) {
+    for (let i = 0; i < this.bands.length; i++) {
+      for (const p of this.points(i)) if (Math.abs(p.x) < halfW + 0.05 && Math.abs(p.z) < halfD + 0.05 && p.y > 0.5) return true;
+    }
+    return false;
+  }
+  geometry(i) {
+    const pts = this.points(i);
+    return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), Math.min(900, pts.length), this.r, 6, false);
   }
   redraw() {
-    this.mesh.geometry.dispose();
-    this.mesh.geometry = this.geometry();
+    this.meshes.forEach((m, i) => {
+      m.geometry.dispose();
+      m.geometry = this.geometry(i);
+    });
   }
 }
 
@@ -306,45 +462,36 @@ export function parcel({ to = 'you' } = {}) {
   lid.position.y = H + 0.03;
   g.add(lid);
 
-  // string tied round it, crossing over the lid, with a bow: two loops of one cord,
-  // drawn as tubes that follow the box, so they can go slack and slide off later
+  // string tied round it, crossing over the lid, with a bow. The box sits on the cord
+  // (lifted by its thickness), so the cord under it is in the gap, not in the table.
   const twine = new THREE.Group();
-  const cord = new THREE.MeshStandardMaterial({ color: '#e6d6b4', roughness: 0.85, transparent: true });
+  const cord = new THREE.MeshStandardMaterial({ color: '#e6d6b4', roughness: 0.85 });
   const y = H + 0.075;
   const kx = 0.35; // where the strands cross and the knot sits
   const skirtY = H + 0.03 - skirt;
-  // a loop in one vertical plane: from the knot out over the top, down the lid's skirt,
-  // in to the box wall, under the bottom, and back up the far side to the knot
-  const loopPath = (half, inner, along) => {
-    const pts = [[0, y], [half, y], [half, skirtY], [inner, -0.012], [-inner, -0.012], [-half, skirtY], [-half, y], [0, y]];
-    return pts.map(([a, h]) => along(a, h));
-  };
-  const strands = [
-    new StringStrand(loopPath(LW / 2 + 0.018, W / 2 + 0.012, (a, h) => new THREE.Vector3(a || kx, h, 0)), new THREE.Vector3(0, H / 2, 0), new THREE.Vector3(1, 0.85, -0.3)),
-    new StringStrand(loopPath(LD / 2 + 0.018, D / 2 + 0.012, (a, h) => new THREE.Vector3(kx, h + (h > H ? 0.008 : 0), a)), new THREE.Vector3(kx, H / 2, 0), new THREE.Vector3(0.9, 0.9, -0.45)),
-  ];
-  for (const st of strands) {
-    st.mesh = new THREE.Mesh(st.geometry(), cord);
-    twine.add(st.mesh);
-  }
-  const bow = [];
-  for (const s of [-1, 1]) {
-    const loop = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.022, 8, 24), cord);
-    loop.rotation.x = Math.PI / 2;
-    loop.scale.set(1.3, 0.75, 1);
-    loop.position.set(kx + s * 0.2, y + 0.03, 0);
-    loop.rotation.z = s * 0.35;
-    twine.add(loop);
-    bow.push(loop);
-    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.02, 0.42), cord);
-    tail.position.set(kx + s * 0.12, y + 0.01, 0.24);
-    tail.rotation.y = s * 0.5;
-    twine.add(tail);
-    bow.push(tail);
-  }
+  const cordR = 0.0125;
+  const floor = -2 * cordR; // the table, in the box's own frame while the box rests on the cord
+  const bottom = -cordR;
+  const loop = (half, inner, along) => [[0, y], [half, y], [half, skirtY], [inner, bottom], [-inner, bottom], [-half, skirtY], [-half, y], [0, y]].map(([a, h]) => along(a, h));
+  const K = new THREE.Vector3(kx, y, 0);
+  const tw = new Twine({
+    K, floor, r: cordR, dir: new THREE.Vector3(1, 0.85, -0.3),
+    bands: [
+      loop(LW / 2 + 0.018, W / 2 + 0.012, (a, h) => new THREE.Vector3(a || kx, h, 0)),
+      loop(LD / 2 + 0.018, D / 2 + 0.012, (a, h) => new THREE.Vector3(kx, h + (h > H ? 0.008 : 0), a)),
+    ],
+  });
+  // where each band's run under the box begins (by arc length), to know when the box is let down
+  tw.bottomStart = tw.bands.map((b) => b.cum[b.pts.findIndex((p) => p.y < 0)]);
+  tw.meshes = tw.bands.map((_, i) => {
+    const m = new THREE.Mesh(tw.geometry(i), cord);
+    twine.add(m);
+    return m;
+  });
+  const lift = 2 * cordR; // how far the box stands on the cord
   g.add(twine);
   shadowed(g);
-  return { group: g, lid, twine, bow, cord, strands, W, D, H };
+  return { group: g, lid, twine, tw, cord, lift, W, D, H };
 }
 
 /* ---------- the letter's envelope ---------- */

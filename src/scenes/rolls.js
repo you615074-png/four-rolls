@@ -104,6 +104,8 @@ function standingStrip(stage, rollIndex, { pulled, min = 0.6, x0 = -0.7, z = 0, 
       }
     },
   };
+  // the can (or the file box) is where the film starts: it always stays in frame, on a phone too
+  stage.keep = stage.corners(can, 0.08);
   stage.onFrame((dt, t) => {
     for (const it of items) {
       it.mat.uniforms.uTime.value = t;
@@ -477,10 +479,48 @@ function edgePrint(roll, it) {
 function viewerRoll(stage, index, stats) {
   const roll = ROLLS[index];
   const total = roll.frames.length;
-  const strip = standingStrip(stage, index, { pulled: 5.4, min: 5.4, z: -0.25 });
+  // the film runs from its can through a gate beside the viewer: the frame in the gate is the one
+  // on the screen. Pulled length is worked out from the gate, so the two can't drift apart.
+  stage.view({ pos: [0.6, 2.2, 7.0], target: [0.6, 0.86, 0], fov: 34 });
+  const x0 = -1.6, z = -0.25;
+  const gateX = -0.42;
+  const sGate = gateX - (x0 + CAN.r - 0.05);
+  const atGate = (i) => sGate + (i + 0.5) * FILM.pitch; // pulled length that puts frame i in the gate
+  const strip = standingStrip(stage, index, { pulled: atGate(0), min: atGate(0), x0, z });
+  strip.max = atGate(total - 1);
   const v = slideViewer();
   v.group.position.set(1.05, 0, 0.65);
   stage.world.add(v.group);
+  // the gate: a brass frame the film runs through, and a dark hood into the side of the viewer
+  {
+    const brass = new THREE.MeshStandardMaterial({ color: '#b08a52', roughness: 0.35, metalness: 0.7 });
+    const dark = new THREE.MeshStandardMaterial({ color: '#15110f', roughness: 0.6 });
+    const g = strip.place(sGate);
+    const gate = new THREE.Group();
+    const hw = FILM.pitch / 2 + 0.04, top = FILM.height + 0.12;
+    for (const sx of [-1, 1]) {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.05, top, 0.14), brass);
+      post.position.set(sx * hw, top / 2, 0);
+      gate.add(post);
+    }
+    for (const y of [0.03, top]) {
+      for (const sz of [-1, 1]) {
+        const rail = new THREE.Mesh(new THREE.BoxGeometry(hw * 2 + 0.05, 0.04, 0.03), brass);
+        rail.position.set(0, y, sz * 0.03);
+        gate.add(rail);
+      }
+    }
+    const hood = new THREE.Mesh(new THREE.BoxGeometry(0.3 - (gateX + hw), FILM.height * 0.7, 0.5), dark);
+    hood.position.set((0.3 + gateX + hw) / 2 - gateX, FILM.height * 0.55, 0.18);
+    gate.add(hood);
+    gate.position.set(gateX, 0, g.z);
+    gate.rotation.y = g.ry;
+    gate.traverse((m) => m.isMesh && (m.castShadow = m.receiveShadow = true));
+    stage.world.add(gate);
+  }
+  const spool = strip.can.userData.spool;
+  // the can, the gate and the viewer: the whole film path stays in view
+  stage.keep = [...stage.corners(strip.can, 0.08), ...stage.corners(v.group, 0.05)];
   const blank = new THREE.CanvasTexture(canvas(4, 4)[0]);
   const screen = photoMaterial(blank, { bright: 1.25 });
   screen.uniforms.uFlash.value = 0.85;
@@ -564,19 +604,21 @@ function viewerRoll(stage, index, stats) {
     // reel, until the frame on the screen is the one at the gate
     const times = [0, 0.08, 0.17, 0.28, 0.41, 0.57, 0.77];
     const from = strip.pulled;
-    const to = Math.min(5.4 + FILM.pitch * (land + 1), strip.max);
-    const grid = (v) => 5.4 + Math.round((v - 5.4) / FILM.pitch) * FILM.pitch;
+    const to = atGate(land);
+    const grid = (v) => atGate(Math.round((v - sGate) / FILM.pitch - 0.5));
     times.forEach((at, k) => {
       tl.call(() => {
-        const i = k === times.length - 1 ? land : Math.floor(Math.random() * total);
+        // whatever frame the film has stepped into the gate is what the screen shows
+        const want = k === times.length - 1 ? to : grid(from + ((to - from) * (k + 1)) / times.length);
+        const i = Math.round((want - sGate) / FILM.pitch - 0.5);
         show(i, 0.05);
         sfx.tick(0.8 + k * 0.04, 0.16);
         screen.uniforms.uFlash.value = 0.55;
         gsap.to(screen.uniforms.uFlash, { value: 0, duration: 0.12, overwrite: true });
-        const want = k === times.length - 1 ? to : grid(from + ((to - from) * (k + 1)) / times.length);
         const step = want - strip.pulled;
         gsap.to(strip, { pulled: want, duration: 0.07, ease: 'power2.out', overwrite: true });
-        gsap.to(strip.can.rotation, { y: `-=${step / CAN.r}`, duration: 0.07, ease: 'power2.out' });
+        // the spool inside turns by the film it lets out; the shell doesn't move
+        gsap.to(spool.map((m) => m.rotation), { y: `-=${step / 0.11}`, duration: 0.07, ease: 'power2.out' });
       }, null, at);
     });
   };
@@ -735,12 +777,15 @@ function stillDeck(stage, app, index) {
   const roll = ROLLS[index];
   const { circled, boxed } = app.state;
   // side by side on a wide screen; on a phone the two heaps sit under the pile
-  const narrow = stage.camera.aspect < 1.15;
-  const homes = narrow
-    ? { box: new THREE.Vector3(-1.15, 0, 1.75), print: new THREE.Vector3(1.15, 0, 1.75), deck: new THREE.Vector3(0, 0, -1.0) }
-    : { box: new THREE.Vector3(-2.3, 0, 0.5), print: new THREE.Vector3(2.3, 0, 0.5), deck: new THREE.Vector3(0, 0, 0.42) };
-  const reach = narrow ? 0.75 : 1.1;
-  stage.view(narrow ? { pos: [0, 6.6, 2.6], target: [0, 0, 0.35], fov: 40 } : { pos: [0, 5.7, 3.7], target: [0, 0, 0.45], fov: 36 });
+  let narrow = stage.camera.aspect < 1.15;
+  const HOMES = {
+    narrow: { box: [-1.15, 1.75], print: [1.15, 1.75], deck: [0, -1.0], reach: 0.75, scale: 1.12, view: { pos: [0, 6.6, 2.6], target: [0, 0, 0.35], fov: 40 } },
+    wide: { box: [-2.3, 0.5], print: [2.3, 0.5], deck: [0, 0.42], reach: 1.1, scale: 1.3, view: { pos: [0, 5.7, 3.7], target: [0, 0, 0.45], fov: 36 } },
+  };
+  const H0 = narrow ? HOMES.narrow : HOMES.wide;
+  const homes = { box: new THREE.Vector3(H0.box[0], 0, H0.box[1]), print: new THREE.Vector3(H0.print[0], 0, H0.print[1]), deck: new THREE.Vector3(H0.deck[0], 0, H0.deck[1]) };
+  let reach = H0.reach;
+  stage.view(H0.view);
   stage.light({ pos: [0.2, 8.5, 2.6], target: [0, 0, 0.3], intensity: 160, angle: 0.8 });
   stage.parallaxAmount = 0.08;
   gsap.from(stage.rig, { py: 8.2, pz: 5.4, duration: 1.4, ease: 'power3.out' });
@@ -750,8 +795,8 @@ function stillDeck(stage, app, index) {
     print: pileMat(stage, { at: homes.print, title: 'print these', sub: `DRAG RIGHT → · UP TO ${MAX_PRINTS}`, ink: '#a8261a', bg: '#f0d6c8' }),
   };
 
-  const scale = narrow ? 1.12 : 1.3;
-  const layer = 0.008 * scale + 0.002; // each sheet's own (scaled) thickness plus a hair of air
+  let scale = H0.scale;
+  let layer = 0.008 * scale + 0.002; // each sheet's own (scaled) thickness plus a hair of air
   const cards = roll.frames.map((f, i) => {
     const g = printCard(index, i, f);
     g.scale.setScalar(scale);
@@ -781,6 +826,29 @@ function stillDeck(stage, app, index) {
   };
   placeAll();
   for (const c of piles.print) (c.mark = circleMark(c.g, c.i * 31 + 5)).to(1, 0.01);
+
+  // crossing the phone/desk breakpoint: the heaps, their mats and the camera move to the other
+  // arrangement, and every print slides to its place in it; nothing about the sorting changes
+  stage.onFrame(() => {
+    const now = stage.camera.aspect < 1.15;
+    if (now === narrow || grab) return;
+    narrow = now;
+    const H = narrow ? HOMES.narrow : HOMES.wide;
+    for (const key of ['box', 'print', 'deck']) homes[key].set(H[key][0], 0, H[key][1]);
+    reach = H.reach;
+    scale = H.scale;
+    layer = 0.008 * scale + 0.002;
+    stage.view(H.view, 1.0);
+    for (const key of ['box', 'print']) gsap.to(mats[key].position, { x: homes[key].x, z: homes[key].z - 0.08, duration: 0.9, ease: 'power2.inOut' });
+    for (const where of ['deck', 'box', 'print']) {
+      const list = where === 'deck' ? deck : piles[where];
+      list.forEach((c, k) => {
+        const p = restAt(where, k, c);
+        gsap.to(c.g.position, { x: p.x, y: p.y, z: p.z, duration: 0.9, ease: 'power2.inOut', overwrite: true });
+        gsap.to(c.g.scale, { x: scale, y: scale, z: scale, duration: 0.9, ease: 'power2.inOut' });
+      });
+    }
+  });
 
   const top = () => deck[deck.length - 1] ?? null;
   const sync = () => {

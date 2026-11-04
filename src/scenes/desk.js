@@ -247,7 +247,7 @@ export function deskScene(stage, app) {
       // the envelope is lifted clear of the box, carried to the corner, then laid down
       if (envLift.base > 0.5) {
         const A = asideAt();
-        const et = gsap.timeline({ delay: 1.35, onComplete: envAside }); // once the letter is back inside
+        const et = gsap.timeline({ delay: 1.65, onComplete: envAside }); // once the letter is back inside
         et.to(envLift, { base: 1.7, duration: 0.45, ease: 'power2.out' });
         et.to(env.position, { x: A.x, z: A.z, duration: 0.85, ease: 'power2.inOut' }, '-=0.1');
         et.to(env.rotation, { y: A.ry, duration: 0.85, ease: 'power2.inOut' }, '<');
@@ -257,7 +257,7 @@ export function deskScene(stage, app) {
         // each can raised straight out, carried across and set down, one after another
         rolls.forEach(({ s }, i) => {
           gsap.to(s, {
-            t: 1, duration: 1.45, delay: 1.7 + i * 0.38, ease: 'none',
+            t: 1, duration: 1.45, delay: 2.0 + i * 0.38, ease: 'none',
             onStart: () => sfx.tick(0.55 + i * 0.05, 0.16),
             onComplete: () => {
               sfx.tick(0.38, 0.22);
@@ -266,8 +266,8 @@ export function deskScene(stage, app) {
           });
         });
         // the camera eases back out to take in the whole desk
-        gsap.to(stage.rig, { ...VIEW, duration: 2.4, delay: 1.4, ease: 'power2.inOut', overwrite: 'auto' });
-        gsap.to(fit, { v: 1, duration: 2.4, delay: 1.4, ease: 'power2.inOut' });
+        gsap.to(stage.rig, { ...VIEW, duration: 2.4, delay: 1.7, ease: 'power2.inOut', overwrite: 'auto' });
+        gsap.to(fit, { v: 1, duration: 2.4, delay: 1.7, ease: 'power2.inOut' });
         const done = () => {
           makePickable();
           ready();
@@ -317,34 +317,53 @@ export function deskScene(stage, app) {
     hud.say(null);
     // lean in a little while it's opened
     gsap.to(stage.rig, { py: 7.0, pz: 4.5, tz: 0.05, duration: 1.8, ease: 'power2.inOut', overwrite: 'auto' });
-    // one tail of the bow is pulled: the loops draw through the knot, the cord goes slack,
-    // then it's drawn out through the knot and slides round the box and out from under it
-    const tl = gsap.timeline();
-    const [l1, t1, l2, t2] = box.bow;
-    const kx = box.strands[0].knot.x;
-    tl.add(() => sfx.paper());
-    tl.to([l1.scale, l2.scale], { x: 0.25, y: 0.25, z: 0.25, duration: 0.5, ease: 'power2.in', stagger: 0.12 });
-    tl.to([l1.position, l2.position], { x: kx, duration: 0.5, ease: 'power2.in', stagger: 0.12 }, '<');
-    tl.to(t1.scale, { z: 1.6, duration: 0.5, ease: 'power2.in' }, '<');
-    tl.to(t2.scale, { x: 0.01, y: 0.01, z: 0.01, duration: 0.35, ease: 'power2.in' }, '<0.2');
-    tl.add(() => box.bow.forEach((m) => (m.visible = false)));
-    const cord = { q: 0, slack: 0 };
-    const draw = () => {
-      for (const st of box.strands) {
-        st.state.q = cord.q;
-        st.state.slack = cord.slack;
-        st.redraw();
+    // one tail of the bow is pulled. The same cord does everything: the near loop runs out
+    // into the tail, the knot lets go and the far loop goes slack, then the cord is drawn off,
+    // sliding round the box and out from under it. The lid only moves once it's clear.
+    const tw = box.tw;
+    const S = tw.state;
+    const redraw = () => tw.redraw();
+    let dropped = false, lidStarted = false;
+    const watch = () => {
+      tw.floor = -box.group.position.y; // the table, in the box's frame, as the box settles
+      redraw();
+      if (!dropped && !tw.under(0) && !tw.under(1)) {
+        // nothing under it any more: the box settles the cord's thickness onto the desk
+        dropped = true;
+        gsap.to(box.group.position, { y: 0, duration: 0.12, ease: 'power2.in', onComplete: () => sfx.tick(0.3, 0.12) });
+        gsap.to(envLift, { base: envLift.base - box.lift, duration: 0.12, ease: 'power2.in' });
+      }
+      if (!lidStarted && S.draw > tw.bowP + tw.farPathOf(0).len && !tw.overBox(box.W / 2, box.D / 2)) {
+        lidStarted = true;
+        openLid();
       }
     };
-    tl.to(cord, { slack: 1, duration: 0.3, ease: 'power2.out', onUpdate: draw }, '-=0.1');
-    const len = Math.max(...box.strands.map((st) => st.len));
-    tl.to(cord, { q: len + 2.2, duration: 1.5, ease: 'power2.in', onUpdate: draw }, '-=0.05');
-    tl.to(box.cord, { opacity: 0, duration: 0.3, ease: 'power1.in' }, '-=0.3');
-    tl.add(() => (box.twine.visible = false));
-    // then the lid: lifted with a slight tilt, carried to the side, set down flat
+    const tl = gsap.timeline();
+    tl.add(() => sfx.paper());
+    // take up the slack: the tail moves first, the parcel answers with the slightest give
+    tl.to(S, { draw: 0.05, duration: 0.22, ease: 'power1.out', onUpdate: redraw });
+    tl.to(box.group.rotation, { z: -0.006, duration: 0.11, yoyo: true, repeat: 1, ease: 'sine.inOut' }, '<');
+    // the near loop is drawn through the knot into the tail
+    tl.to(S, { draw: tw.bowP, duration: 0.5, ease: 'power1.inOut', onUpdate: redraw });
+    // the knot gives; the far loop and tail fall slack on the lid
+    tl.to(S, { loose: 1, duration: 0.3, ease: 'power2.out', onUpdate: redraw });
+    // and the cord comes off, round the corners, out from under the box, and away out of frame
+    tl.add(() => sfx.paper(), '-=0.1');
+    tl.to(S, { draw: () => tw.bowP + tw.farPathOf(0).len + 7, duration: 2.0, ease: 'power2.in', onUpdate: watch }, '-=0.1');
+    tl.add(() => {
+      box.twine.visible = false;
+      if (!lidStarted) {
+        lidStarted = true;
+        openLid();
+      }
+    });
+  };
+  // then the lid: lifted straight up off the walls, carried to the side, set down flat
+  const openLid = () => {
     const lid = box.lid;
-    tl.add(() => sfx.paper(), '-=0.5');
-    tl.to(lid.position, { y: box.H + 1.05, duration: 0.6, ease: 'power2.out' }, '-=0.5');
+    const tl = gsap.timeline();
+    tl.add(() => sfx.paper());
+    tl.to(lid.position, { y: box.H + 1.05, duration: 0.6, ease: 'power2.out' });
     tl.to(lid.rotation, { x: -0.14, z: 0.05, duration: 0.6, ease: 'power2.out' }, '<');
     tl.to(lid.position, { x: LID.x - BOX.x, z: LID.z - BOX.z, duration: 0.95, ease: 'power2.inOut' }, '-=0.1');
     tl.to(lid.rotation, { y: LID.ry, x: 0.06, z: -0.03, duration: 0.95, ease: 'power2.inOut' }, '<');
@@ -359,8 +378,11 @@ export function deskScene(stage, app) {
   let parcelGuide = null;
 
   if (!st.parcelOpen) {
-    box.group.position.set(BOX.x, 0, BOX.z);
+    // tied up, the box stands on its string
+    box.group.position.set(BOX.x, box.lift, BOX.z);
     envOnTop();
+    envLift.base += box.lift;
+    env.position.y = envLift.base;
     stage.pick(box.group, { label: 'untie the string', click: untie });
     // on a phone the notebook can sit at the edge of the frame, so the way in goes under the picture too
     hud.say(COPY.parcel, innerWidth < 700 ? { label: '寄件人 · pack it', run: goEdit } : null);
@@ -392,37 +414,87 @@ export function deskScene(stage, app) {
 const letterEl = document.querySelector('#letter');
 let letterRun = null;
 
-// where the envelope is on screen, relative to the paper's resting centre
-function towardEnvelope(paper, at) {
+/*
+ * The letter folds the way paper does: the sheet is cut into three panels along its creases and
+ * the outer two turn over onto the middle, so the writing keeps its shape, the back of the paper
+ * shows as it turns, and the panels cover each other. The folded letter then goes, at one scale,
+ * into the envelope.
+ */
+const PACKET = 0.2; // the folded letter's size against the envelope, seen from the camera
+
+function foldRig(paper) {
+  const host = letterEl.getBoundingClientRect();
   const r = paper.getBoundingClientRect();
-  const p = at?.();
-  return p ? { x: p.x - (r.left + r.width / 2), y: p.y - (r.top + r.height / 2) } : { x: 0, y: 80 };
+  const rig = document.createElement('div');
+  rig.className = 'fold-rig';
+  Object.assign(rig.style, {
+    position: 'absolute', left: `${r.left - host.left}px`, top: `${r.top - host.top}px`,
+    width: `${r.width}px`, height: `${r.height}px`, perspective: '1600px', pointerEvents: 'none',
+  });
+  const packet = document.createElement('div');
+  Object.assign(packet.style, { position: 'absolute', inset: '0', transformStyle: 'preserve-3d' });
+  rig.appendChild(packet);
+  const third = r.height / 3;
+  const panes = [0, 1, 2].map((i) => {
+    const pane = document.createElement('div');
+    Object.assign(pane.style, {
+      position: 'absolute', left: '0', top: `${i * third}px`, width: '100%', height: `${third + (i < 2 ? 0.5 : 0)}px`,
+      transformStyle: 'preserve-3d', transformOrigin: i === 0 ? '50% 100%' : i === 2 ? '50% 0%' : '50% 50%',
+    });
+    const face = paper.cloneNode(true);
+    Object.assign(face.style, {
+      position: 'absolute', left: '0', top: `${-i * third}px`, width: `${r.width}px`, height: `${r.height}px`,
+      maxHeight: 'none', margin: '0', transform: 'none', overflow: 'hidden', backfaceVisibility: 'hidden', boxSizing: 'border-box',
+    });
+    const back = document.createElement('div');
+    Object.assign(back.style, {
+      position: 'absolute', inset: '0', background: 'linear-gradient(#e9e0cf, #e2d8c4)', transform: 'rotateX(180deg)',
+      backfaceVisibility: 'hidden', boxShadow: 'inset 0 0 18px rgba(120, 90, 50, 0.25)',
+    });
+    pane.append(face, back);
+    packet.appendChild(pane);
+    return pane;
+  });
+  letterEl.appendChild(rig);
+  paper.style.visibility = 'hidden';
+  const toEnv = (at) => {
+    const p = at?.();
+    return p ? { x: p.x - (r.left + r.width / 2), y: p.y - (r.top + r.height / 2) } : { x: 0, y: 80 };
+  };
+  const done = () => {
+    rig.remove();
+    paper.style.visibility = '';
+  };
+  return { panes, packet, third, toEnv, done };
 }
-const FOLDED = { scaleX: 0.5, scaleY: 0.34 }; // folded in three, then in half
-const IN_ENVELOPE = { scaleX: 0.15, scaleY: 0.08 };
 
 function closeLetter(instant = false, at = null) {
   if (letterEl.hidden) return;
   letterRun?.kill();
   letterRun = null;
   const paper = letterEl.querySelector('.letter-paper');
+  gsap.set(paper, { clearProps: 'transform' });
+  letterEl.querySelector('.fold-rig')?.remove();
+  paper.style.visibility = '';
   if (instant) {
     letterEl.hidden = true;
-    gsap.set(paper, { clearProps: 'transform' });
     return;
   }
-  // folded the way it came: in three, in half, then slipped back into the envelope
-  gsap.set(paper, { clearProps: 'transform' });
-  const d = towardEnvelope(paper, at);
   paper.scrollTop = 0;
+  const f = foldRig(paper);
+  const [top, , bottom] = f.panes;
+  const d = f.toEnv(at);
   gsap.timeline({ onComplete: () => {
+    f.done();
     letterEl.hidden = true;
-    gsap.set([paper, letterEl], { clearProps: 'transform,opacity' });
+    gsap.set(letterEl, { clearProps: 'opacity' });
   } })
-    .to(paper, { scaleY: FOLDED.scaleY, rotationX: 8, duration: 0.42, ease: 'power2.inOut', transformOrigin: '50% 30%' })
-    .to(paper, { scaleX: FOLDED.scaleX, duration: 0.3, ease: 'power2.inOut' })
-    .to(paper, { x: d.x, y: d.y, ...IN_ENVELOPE, rotate: -6, rotationX: 0, duration: 0.6, ease: 'power3.in' }, '+=0.05')
-    .to(letterEl, { opacity: 0, duration: 0.45, ease: 'power1.in' }, '-=0.45');
+    // the bottom third up over the middle, then the top third down over both
+    .to(bottom, { rotationX: 179, z: 1, duration: 0.5, ease: 'power2.inOut' })
+    .to(top, { rotationX: -179, z: 2, duration: 0.5, ease: 'power2.inOut' }, '-=0.12')
+    // the folded letter, at one scale all the way, back into the envelope
+    .to(f.packet, { x: d.x, y: d.y, scale: PACKET, rotation: -8, duration: 0.65, ease: 'power3.in' }, '+=0.05')
+    .to(letterEl, { opacity: 0, duration: 0.4, ease: 'power1.in' }, '-=0.4');
 }
 
 function showLetter(onDone, at = null) {
@@ -442,17 +514,24 @@ function showLetter(onDone, at = null) {
   done.hidden = true;
   letterEl.hidden = false;
   gsap.set(paper, { clearProps: 'transform' });
+  letterEl.querySelector('.fold-rig')?.remove();
+  paper.style.visibility = '';
   paper.scrollTop = 0;
-  // drawn out of the envelope still folded, then opened out flat
-  const d = towardEnvelope(paper, at);
-  gsap.fromTo(letterEl, { opacity: 0 }, { opacity: 1, duration: 0.5 });
-  gsap.timeline()
-    .fromTo(paper, { x: d.x, y: d.y, ...IN_ENVELOPE, rotate: -6, transformOrigin: '50% 30%' }, { x: 0, y: 0, ...FOLDED, rotate: 2, duration: 0.6, ease: 'power3.out' })
-    .to(paper, { scaleX: 1, duration: 0.3, ease: 'power2.out' })
-    .to(paper, { scaleY: 1, rotate: -1, duration: 0.42, ease: 'power2.out' });
+  // drawn out of the envelope still folded, brought up at one scale, then opened out:
+  // the top third turned back, then the bottom
+  const f = foldRig(paper);
+  const [top, , bottom] = f.panes;
+  const d = f.toEnv(at);
+  gsap.set(bottom, { rotationX: 179, z: 1 });
+  gsap.set(top, { rotationX: -179, z: 2 });
+  gsap.fromTo(letterEl, { opacity: 0 }, { opacity: 1, duration: 0.45 });
+  gsap.timeline({ onComplete: f.done })
+    .fromTo(f.packet, { x: d.x, y: d.y, scale: PACKET, rotation: -8 }, { x: 0, y: 0, scale: 1, rotation: 0, duration: 0.65, ease: 'power3.out' })
+    .to(top, { rotationX: 0, z: 0, duration: 0.45, ease: 'power2.inOut' })
+    .to(bottom, { rotationX: 0, z: 0, duration: 0.45, ease: 'power2.inOut' }, '-=0.1');
 
   // each line appears as if the pen were moving across it
-  const tl = gsap.timeline({ delay: 1.2, onComplete: () => finish() });
+  const tl = gsap.timeline({ delay: 1.55, onComplete: () => finish() });
   for (const el of parts) {
     const len = Math.max(0.5, Math.min(3.2, el.textContent.length * 0.035));
     tl.fromTo(el, { clipPath: 'inset(0 100% 0 0)', opacity: 1 }, { clipPath: 'inset(0 0% 0 0)', duration: len, ease: 'none', onStart: () => sfx.pen() }, '+=0.25');
@@ -487,28 +566,56 @@ export function pickupScene(stage, app) {
   stage.world.add(box.group);
   settleOpen(box, { x: 2.6, z: -2.9 });
 
+  // the print wallet lies on the desk (its own height is half its thickness: it sits on its base)
   const wallet = printEnvelope(ROLLS[STILL].name);
-  wallet.position.set(-3.0, 0, 0.6);
-  wallet.rotation.y = 0.1;
+  const WALLET = { x: -3.0, z: 0.6, ry: 0.1, w: 1.8, t: 0.07 };
+  wallet.position.set(WALLET.x, WALLET.t / 2, WALLET.z);
+  wallet.rotation.y = WALLET.ry;
   stage.world.add(wallet);
-  // the prints, slid half out of their envelope
-  // every print chosen comes home, fanned out of the envelope
-  const fan = picks.length > 4 ? 0.3 : 0.38;
+  // the prints come out of its open end. The first is still half inside, resting on the mouth and
+  // sloping down to the desk; the others lie on the desk, each on the one before by its thickness.
+  const PAPER = 0.006;
+  const mouth = WALLET.x + WALLET.w / 2 - 0.05; // the open end, on the right
+  const fan = picks.length > 4 ? 0.34 : 0.42;
+  const cards = [];
   picks.forEach((frameIndex, k) => {
     const f = ROLLS[STILL].frames[frameIndex];
     const w = f.wide ? 1.1 : 0.82, h = f.wide ? 0.82 : 1.1;
     const card = new THREE.Group();
-    const paper = new THREE.Mesh(new THREE.BoxGeometry(w + 0.1, 0.006, h + 0.1), new THREE.MeshStandardMaterial({ color: '#f4efe4', roughness: 0.8 }));
+    const paper = new THREE.Mesh(new THREE.BoxGeometry(w + 0.1, PAPER, h + 0.1), new THREE.MeshStandardMaterial({ color: '#f4efe4', roughness: 0.8 }));
     const ph = new THREE.Mesh(new THREE.PlaneGeometry(w, h), photoMaterial(photoTexture(STILL, frameIndex, f), { mono: 1, bright: 0.95 }));
     ph.rotation.x = -Math.PI / 2;
-    ph.position.y = 0.004;
-    paper.castShadow = true;
+    ph.position.y = PAPER / 2 + 0.0005;
+    paper.castShadow = paper.receiveShadow = true;
     card.add(paper, ph);
-    card.position.set(-1.35 + k * fan, 0.09 + k * 0.01, 0.45 - k * 0.06);
-    card.rotation.y = -0.25 + k * (picks.length > 4 ? 0.12 : 0.17);
+    const half = (w + 0.1) / 2;
+    let x, y, tilt;
+    if (k === 0) {
+      // its left end inside the mouth at mid-height, its right end down on the desk
+      x = mouth + half - 0.35;
+      const inY = WALLET.t / 2, outY = PAPER / 2;
+      tilt = -Math.atan2(inY - outY, half * 2);
+      y = (inY + outY) / 2;
+    } else {
+      x = mouth + 0.55 + k * fan;
+      y = PAPER / 2 + (k - 1) * PAPER;
+      tilt = 0;
+    }
+    card.position.set(x, y, WALLET.z - 0.1 - k * 0.05);
+    card.rotation.set(0, -0.12 + k * (picks.length > 4 ? 0.1 : 0.14), tilt, 'YXZ');
     stage.world.add(card);
-    gsap.from(card.position, { x: -3.0, duration: 1.0, delay: 0.6 + k * 0.15, ease: 'power3.out' });
+    cards.push(card);
+    // drawn out of the envelope: slid along at the mouth's height, then let down onto the desk
+    const end = { x, y };
+    card.position.set(WALLET.x + 0.2, WALLET.t / 2, card.position.z);
+    const r0 = card.rotation.z;
+    card.rotation.z = 0;
+    gsap.timeline({ delay: 0.6 + k * 0.18 })
+      .to(card.position, { x: end.x, duration: 0.9, ease: 'power3.out' })
+      .to(card.position, { y: end.y, duration: 0.35, ease: 'power2.in' }, '-=0.3')
+      .to(card.rotation, { z: r0, duration: 0.35, ease: 'power2.in' }, '<');
   });
+  stage.keep = [...stage.corners(wallet, 0.1), new THREE.Vector3(mouth + 0.55 + picks.length * fan + 0.7, 0, WALLET.z)];
 
   const r = document.querySelector('#receipt');
   const rows = [

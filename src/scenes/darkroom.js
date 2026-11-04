@@ -99,27 +99,30 @@ export function lightboxScene(stage, app) {
   const L = loupe();
   stage.world.add(L.group);
   L.group.position.set(1.6, top, 1.25);
-  const lensMat = photoMaterial(new THREE.CanvasTexture(canvas(4, 4)[0]), { bright: 1.25 });
-  const lensDark = L.lens.material;
-  let over = null;
-  const zoomCrop = (slot) => {
-    lensMat.uniforms.uMap.value = photoTexture(STILL, slot.frameIndex, slot.frame);
-    // the same quarter turn as the frame on the glass, so a landscape shot reads the same way
-    lensMat.uniforms.uTurn.value = isWide(slot.frame) ? 1 : 0;
-    L.lens.material = lensMat;
-    aimLens(slot);
-  };
-  // the lens shows the patch of the frame right under it: the loupe's offset from the frame's
-  // centre, in the frame's own uv (x across, y up the frame = -z on the glass)
+  // what the lens shows is rendered from directly under it: a small top-down camera at the
+  // loupe's own position looks at the glass, so it sees whatever is really there (the frame at
+  // its real angle, its rebate and sprocket holes, the bare glass) and changes frame only when
+  // the loupe itself has moved onto another
   const LENS_SPAN = 0.36;
-  const aimLens = (slot) => {
-    const w = FILM.imgW * slot.scale, h = FILM.imgH * slot.scale;
-    const u = 0.5 + (L.group.position.x - slot.x) / w;
-    const v = 0.5 - (L.group.position.z - slot.z) / h;
-    const cw = LENS_SPAN / w, ch = LENS_SPAN / h;
-    lensMat.uniforms.uCrop.value.set(
-      THREE.MathUtils.clamp(u - cw / 2, 0, 1 - cw), THREE.MathUtils.clamp(v - ch / 2, 0, 1 - ch), cw, ch,
-    );
+  const lensRT = new THREE.WebGLRenderTarget(512, 512);
+  const lensCam = new THREE.OrthographicCamera(-LENS_SPAN / 2, LENS_SPAN / 2, LENS_SPAN / 2, -LENS_SPAN / 2, 0.01, 4);
+  lensCam.up.set(0, 0, -1);
+  const lensMat = new THREE.MeshBasicMaterial({ map: lensRT.texture, color: new THREE.Color(1.15, 1.12, 1.08) });
+  L.lens.material = lensMat;
+  let over = null;
+  const under = (x, z) => slots.find((s) => Math.abs(s.x - x) < FILM.pitch * s.scale * 0.5 && Math.abs(s.z - z) < FILM.height * s.scale * 0.5) ?? null;
+  const renderLens = () => {
+    const q = L.group.position;
+    lensCam.position.set(q.x, top + 1.2, q.z);
+    lensCam.lookAt(q.x, top, q.z);
+    lensCam.updateMatrixWorld();
+    L.group.visible = false;
+    const r = stage.renderer;
+    const prev = r.getRenderTarget();
+    r.setRenderTarget(lensRT);
+    r.render(stage.scene, lensCam);
+    r.setRenderTarget(prev);
+    L.group.visible = true;
   };
 
   const glass = new THREE.Mesh(new THREE.PlaneGeometry(4.3, 2.9), new THREE.MeshBasicMaterial({ visible: false }));
@@ -139,20 +142,18 @@ export function lightboxScene(stage, app) {
     if (p && hud.zoom.hidden) {
       p.x = THREE.MathUtils.clamp(p.x, -2.0, 2.0);
       p.z = THREE.MathUtils.clamp(p.z, -0.85, 1.6);
-      const near = slots.find((s) => Math.abs(s.x - p.x) < 0.42 && Math.abs(s.z - p.z) < 0.6);
-      if (near !== over) {
-        over = near ?? null;
-        if (over) zoomCrop(over);
-        else L.lens.material = lensDark;
-      }
-      target.set(over ? THREE.MathUtils.lerp(p.x, over.x, 0.6) : p.x, top + 0.02, over ? THREE.MathUtils.lerp(p.z, over.z, 0.6) : p.z);
+      // the pointer pulls the loupe toward the middle of the frame it's pointing at
+      const aimAt = slots.find((s) => Math.abs(s.x - p.x) < 0.42 && Math.abs(s.z - p.z) < 0.6);
+      target.set(aimAt ? THREE.MathUtils.lerp(p.x, aimAt.x, 0.6) : p.x, top + 0.02, aimAt ? THREE.MathUtils.lerp(p.z, aimAt.z, 0.6) : p.z);
     }
+    // but what it's over is decided by where the loupe actually is
+    over = under(L.group.position.x, L.group.position.z);
     // the loupe glides after the pointer and lifts a little when it finds a frame
     raise = damp(raise, over ? 0.08 + Math.sin(t * 3) * 0.01 : 0, 10, dt);
     L.group.position.x = damp(L.group.position.x, target.x, 12, dt);
     L.group.position.z = damp(L.group.position.z, target.z, 12, dt);
     L.group.position.y = target.y + raise;
-    if (over) aimLens(over);
+    renderLens();
   });
 
   const sticker = (slot) => {
@@ -170,7 +171,11 @@ export function lightboxScene(stage, app) {
   const prompt = () => {
     hud.setCount(`${seen.size} OF ${picks.length} SEEN`);
     hud.say(COPY.lightbox, { label: `${COPY.swap} ↻`, run: swap });
-    hud.cta(COPY.printThem, () => app.go('tray'));
+    hud.cta(COPY.printThem, () => {
+      // the chosen negatives go to the enlarger and the tray behind: look up and across to it
+      gsap.to(stage.rig, { py: 4.6, pz: 1.8, ty: 0.4, tz: -2.9, duration: 0.7, ease: 'power2.in', overwrite: true });
+      app.go('tray');
+    });
   };
 
   // pick different negatives: the old strips slide off the glass, the new ones slide on
@@ -193,7 +198,6 @@ export function lightboxScene(stage, app) {
     picks = selectedFrames(app);
     for (const i of [...seen]) if (!picks.includes(i)) seen.delete(i);
     over = null;
-    L.lens.material = lensDark;
     for (const old of slots) {
       const gone = [old.g, old.dot].filter(Boolean);
       gsap.to(old.g.position, { x: old.x - 3, y: top + 0.8, duration: 0.6, ease: 'power3.in', onComplete: () => gone.forEach((o) => {
@@ -233,6 +237,7 @@ export function lightboxScene(stage, app) {
       prompt();
     });
   };
+  return () => lensRT.dispose();
 }
 
 /* ---------- scene 06: the tray and the line ---------- */
@@ -295,28 +300,45 @@ export function trayScene(stage, app) {
   stage.view({ pos: [0.3, 4.3, 3.0], target: [0.3, 1.55, -3.6], fov: 40 });
   stage.light({ pos: [1.2, 7.2, -0.2], target: [0.3, 0, -3.4], intensity: 38, angle: 0.7, hemi: 0.12 });
   stage.hemi.color.set('#ff9a80');
-  gsap.from(stage.rig, { py: 5.0, pz: 4.0, duration: 1.4, ease: 'power3.out' });
+  // arriving from the light box: still looking down at the bench, then up to the line and the tray
+  gsap.from(stage.rig, { py: 5.4, pz: 4.4, ty: 0.6, duration: 1.4, ease: 'power3.out' });
 
   const set = buildDarkroom(stage);
   const { tray: t, stack, timer: clock, tongs } = set;
   const trayHome = t.group.position.clone();
   const TRAY_HALF = 1.65; // half the tray's width: it rocks on one bottom edge, then the other
-  const tongRest = { pos: tongs.position.clone(), rot: tongs.rotation.clone() };
+  const tongRest = { pos: tongs.position.clone(), q: tongs.quaternion.clone() };
   const TONG_TIP = new THREE.Vector3(-0.62, 0, 0);
-  const grip = { k: 0, p: null }; // how far the tongs have gone from their rest to the print's top edge
+  const grip = { k: 0, p: null, jaw: 0 }; // how far the tongs have gone from rest to the print's corner, and how open
   const levelQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
   const tiltQ = new THREE.Quaternion();
   const Z = new THREE.Vector3(0, 0, 1);
   const sheet = stack.userData.sheet;
-  // on a narrow screen the paper sits in front of the tray so it stays in view
-  if (stage.camera.aspect < 1.15) stack.position.set(-0.6, 0, -1.2);
+  // on a narrow screen the paper sits in front of the tray so it stays in view, and the prints
+  // hang closer together on the line. Crossing the breakpoint moves both, whatever is under way.
+  const STACK = { wide: stack.position.clone(), narrow: new THREE.Vector3(-0.6, 0, -1.2) };
+  const isNarrow = () => stage.camera.aspect < 1.15;
+  const lay = { narrow: isNarrow(), k: isNarrow() ? 1 : 0 };
+  stack.position.lerpVectors(STACK.wide, STACK.narrow, lay.k);
+  const stackPoint = new THREE.Vector3();
 
   const { lineZ } = SET;
-  const spacing = 1.18;
+  const spacingNow = () => THREE.MathUtils.lerp(1.18, 0.98, lay.k);
   // every print hangs with its top edge just under the line, whatever its shape
   const slot = (k, H) => {
-    const x = 0.3 + (k - (n - 1) / 2) * spacing;
+    const x = 0.3 + (k - (n - 1) / 2) * spacingNow();
     return new THREE.Vector3(x, set.lineAt(x) - 0.08 - H / 2, lineZ + 0.03);
+  };
+  // the whole line, the tray and the paper stay in frame
+  const trayCorners = stage.corners(t.group, 0.05);
+  stage.keep = () => {
+    const pts = [...trayCorners];
+    for (const k of [0, n - 1]) {
+      const c = slot(k, 1.2);
+      pts.push(c.clone().add(new THREE.Vector3(k ? 0.62 : -0.62, 0.75, 0)), c.clone().add(new THREE.Vector3(k ? 0.62 : -0.62, -0.62, 0)));
+    }
+    pts.push(stack.position.clone().add(new THREE.Vector3(-0.6, 0.2, 0.45)), stack.position.clone().add(new THREE.Vector3(0.6, 0, 0.45)));
+    return pts;
   };
   const hung = [];
   let busy = false;
@@ -351,10 +373,36 @@ export function trayScene(stage, app) {
       doneOnce = true;
       hud.toast('all dry', { kicker: `${n} print${n > 1 ? 's' : ''} on the line`, line: 'tap one to read the back', sound: 'success' });
     }
-    hud.sideNote(COPY.allDry, COPY.toWall, () => app.go('wall'));
+    hud.sideNote(COPY.allDry, COPY.toWall, () => {
+      // the dry prints come down off the line: the camera rises with them toward the wall
+      gsap.to(stage.rig, { py: 3.4, pz: 0.4, ty: 2.4, duration: 0.7, ease: 'power2.in', overwrite: true });
+      app.go('wall');
+    });
   };
 
-  const stackGuide = stage.anchor(new THREE.Vector3(stack.position.x, 0.3, stack.position.z), 'take a sheet', { dy: -18 });
+  stackPoint.set(stack.position.x, 0.3, stack.position.z);
+  const stackGuide = stage.anchor(stackPoint, 'take a sheet', { dy: -18 });
+  stage.onFrame(() => {
+    if (isNarrow() !== lay.narrow) {
+      lay.narrow = !lay.narrow;
+      gsap.to(lay, {
+        k: lay.narrow ? 1 : 0, duration: 1.0, ease: 'power2.inOut', overwrite: true,
+        onUpdate: () => {
+          // the prints already pegged slide along the line with their pegs
+          for (const e of hung) {
+            if (e.moving || reading === e) continue;
+            const s = slot(e.k, e.H);
+            const top = new THREE.Vector3(0, e.H / 2, 0).applyEuler(e.home.rot);
+            e.home.pos.copy(s);
+            e.peg.copy(s).add(top);
+            e.clip.position.set(s.x, s.y + e.H / 2 + 0.02, s.z + 0.02);
+          }
+        },
+      });
+    }
+    stack.position.lerpVectors(STACK.wide, STACK.narrow, lay.k);
+    stackPoint.set(stack.position.x, 0.3, stack.position.z);
+  });
   let rockGuide = null;
 
   const develop = () => {
@@ -492,10 +540,22 @@ export function trayScene(stage, app) {
     t.liquid.quaternion.copy(tiltQ.setFromAxisAngle(Z, -th)).multiply(levelQ);
     // the tongs: at rest on the rim, or holding the print's top edge
     if (grip.p) {
-      const at = grip.p.g.localToWorld(new THREE.Vector3(0, grip.p.H / 2 - 0.04, 0.03));
-      tongs.rotation.set(tongRest.rot.x, tongRest.rot.y, THREE.MathUtils.lerp(tongRest.rot.z, 0.6, grip.k));
-      const tip = TONG_TIP.clone().applyEuler(tongs.rotation);
-      tongs.position.lerpVectors(tongRest.pos, at.sub(tip), grip.k);
+      // the jaws close on the print's top corner, in the print's own frame: the handle runs out
+      // from the corner, the jaws either side of the paper (their gap along the print's normal)
+      const g = grip.p.g;
+      g.updateWorldMatrix(true, false);
+      const at = g.localToWorld(new THREE.Vector3(grip.p.W / 2 - 0.1, grip.p.H / 2 - 0.05, 0));
+      const q = g.getWorldQuaternion(new THREE.Quaternion());
+      const px = new THREE.Vector3(1, 0, 0).applyQuaternion(q), py = new THREE.Vector3(0, 1, 0).applyQuaternion(q);
+      const pn = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
+      const X = px.multiplyScalar(0.8).add(py.multiplyScalar(0.5)).add(pn.clone().multiplyScalar(0.4)).normalize();
+      const Zj = pn.clone().addScaledVector(X, -pn.dot(X)).normalize();
+      const Y = new THREE.Vector3().crossVectors(Zj, X);
+      const held = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(X, Y, Zj));
+      tongs.quaternion.slerpQuaternions(tongRest.q, held, grip.k);
+      const heldPos = at.addScaledVector(X, -TONG_TIP.x);
+      tongs.position.lerpVectors(tongRest.pos, heldPos, grip.k);
+      tongs.userData.jaw(grip.jaw);
     }
     slosh.wv += (-slosh.wave * 30 - slosh.wv * 2.2 + (slosh.to - slosh.tilt) * 40) * dt;
     slosh.wave += slosh.wv * dt;
@@ -573,7 +633,9 @@ export function trayScene(stage, app) {
     stage.world.add(c);
     grip.p = p;
     gsap.timeline()
-      .to(grip, { k: 1, duration: 0.5, ease: 'power2.inOut' })
+      // open on the way in, close on the corner, and only then lift
+      .to(grip, { k: 1, jaw: 1, duration: 0.5, ease: 'power2.inOut' })
+      .to(grip, { jaw: 0, duration: 0.14, ease: 'power2.in', onComplete: () => sfx.tick(0.7, 0.08) })
       .to(p.g.position, { y: 1.2, z: p.g.position.z + 0.2, duration: 0.7, ease: 'power2.out' })
       .to(p.g.rotation, { x: -0.08, z: 0, duration: 0.7, ease: 'power2.out' }, '<')
       .add(() => {
@@ -593,8 +655,9 @@ export function trayScene(stage, app) {
         peg(c, false, 0.12);
         sfx.tick(0.55, 0.2);
       })
-      // and the tongs let go and go back to the rim
-      .to(grip, { k: 0, duration: 0.6, ease: 'power2.inOut', onComplete: () => (grip.p = null) }, '+=0.1')
+      // the peg has it now: the tongs open, come away, and go back to the rim shut
+      .to(grip, { jaw: 1, duration: 0.14, ease: 'power2.out' }, '+=0.08')
+      .to(grip, { k: 0, jaw: 0, duration: 0.6, ease: 'power2.inOut', onComplete: () => (grip.p = null) })
       .add(() => {
         const rot = p.g.rotation.clone();
         const top = new THREE.Vector3(0, p.H / 2, 0).applyEuler(rot);

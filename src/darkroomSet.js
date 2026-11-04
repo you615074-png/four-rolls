@@ -158,18 +158,33 @@ export function plasticTray(color, { W = 3.3, D = 2.3, H = 0.3 } = {}) {
   return { group: g, liquid, liquidY, floorY: 0.075 };
 }
 
+/**
+ * Bamboo print tongs: two arms hinged at the handle end, red rubber tips at the jaws.
+ * `userData.jaw(open)` opens them (0 shut on a sheet of paper, 1 wide). The tips are at local x = -0.6.
+ */
 function tongs(tip = '#c42a1e') {
   const g = new THREE.Group();
   const bamboo = std('#cfae74', { roughness: 0.55 });
-  for (const z of [-0.035, 0.035]) {
-    const s = new THREE.Mesh(new RoundedBoxGeometry(1.25, 0.035, 0.06, 1, 0.012), bamboo);
-    s.position.z = z;
-    s.rotation.y = z * 1.1;
-    g.add(s);
-    const t = new THREE.Mesh(new RoundedBoxGeometry(0.2, 0.05, 0.075, 1, 0.02), std(tip, { roughness: 0.5 }));
-    t.position.set(-0.6, 0, z - z * 0.66);
-    g.add(t);
+  const rubber = std(tip, { roughness: 0.5 });
+  const arms = [];
+  for (const side of [-1, 1]) {
+    const arm = new THREE.Group();
+    arm.position.set(0.6, 0, side * 0.03); // the hinge
+    const s = new THREE.Mesh(new RoundedBoxGeometry(1.25, 0.035, 0.03, 1, 0.012), bamboo);
+    s.position.set(-0.6, 0, -side * 0.006);
+    arm.add(s);
+    const t = new THREE.Mesh(new RoundedBoxGeometry(0.2, 0.05, 0.03, 1, 0.012), rubber);
+    t.position.set(-1.2, 0, -side * 0.012);
+    arm.add(t);
+    arm.userData = { side };
+    g.add(arm);
+    arms.push(arm);
   }
+  g.userData.jaw = (open) => {
+    // turning about the hinge swings the tip outward (shut, the tips meet on the paper)
+    for (const a of arms) a.rotation.y = a.userData.side * open * 0.11;
+  };
+  g.userData.jaw(0);
   return shade(g);
 }
 

@@ -63,6 +63,11 @@ export class Stage {
     this.parallaxAmount = 0.12;
     // the narrowest aspect a scene is framed for; below it the camera backs off to keep the width
     this.frameAspect = 1.45;
+    // what a scene needs kept in frame: points (or a function returning them); the camera
+    // backs off along its own line of sight until they all fit, easing rather than jumping
+    this.keep = null;
+    this.kFit = null;
+    this.ndcTmp = new THREE.Vector3();
 
     const table = new THREE.Mesh(
       new THREE.PlaneGeometry(80, 80),
@@ -148,6 +153,8 @@ export class Stage {
     this.hemi.groundColor.set(LOOK.ground);
     this.table.visible = true;
     this.frameAspect = 1.45;
+    this.keep = null;
+    this.kFit = null;
   }
 
   pick(obj, handlers) {
@@ -315,6 +322,50 @@ export class Stage {
     } else this.tag.classList.remove('on');
   }
 
+  place(k, px, py) {
+    const r = this.rig;
+    this.camera.position.set(r.tx + (r.px - r.tx) * k + px, r.ty + (r.py - r.ty) * k + py * 0.5, r.tz + (r.pz - r.tz) * k);
+    this.camera.lookAt(r.tx + px * 0.4, r.ty + py * 0.2, r.tz);
+    this.camera.updateMatrixWorld();
+  }
+
+  /** The smallest distance factor ≥ k0 that keeps every kept point inside the safe frame. */
+  fitFor(k0, px, py) {
+    const pts = typeof this.keep === 'function' ? this.keep() : this.keep;
+    if (!pts?.length) return k0;
+    const mx = 0.9, my = 0.8; // leave room for the title, the hint and the corner tags
+    const fits = (k) => {
+      this.place(k, px, py);
+      this.camera.matrixWorldInverse.copy(this.camera.matrixWorld).invert();
+      for (const p of pts) {
+        const v = this.ndcTmp.copy(p).project(this.camera);
+        if (v.z > 1 || Math.abs(v.x) > mx || Math.abs(v.y) > my) return false;
+      }
+      return true;
+    };
+    if (fits(k0)) return k0;
+    let lo = k0, hi = k0 * 1.25;
+    for (let i = 0; i < 6 && !fits(hi); i++) {
+      lo = hi;
+      hi *= 1.25;
+    }
+    for (let i = 0; i < 7; i++) {
+      const m = (lo + hi) / 2;
+      if (fits(m)) hi = m;
+      else lo = m;
+    }
+    return hi;
+  }
+
+  /** The eight corners of an object's bounding box, for `keep`. */
+  corners(obj, pad = 0) {
+    obj.updateWorldMatrix(true, true);
+    const b = new THREE.Box3().setFromObject(obj).expandByScalar(pad);
+    const out = [];
+    for (const x of [b.min.x, b.max.x]) for (const y of [b.min.y, b.max.y]) for (const z of [b.min.z, b.max.z]) out.push(new THREE.Vector3(x, y, z));
+    return out;
+  }
+
   tick() {
     const dt = Math.min(this.clock.getDelta(), 0.05);
     const t = this.clock.elapsedTime;
@@ -337,16 +388,19 @@ export class Stage {
     const r = this.rig;
     const px = this.parallax.x * this.parallaxAmount, py = this.parallax.y * this.parallaxAmount;
     // scenes are framed for a ~3:2 screen; on narrower screens back the camera off to keep the width
-    const k = Math.max(1, this.frameAspect / this.camera.aspect) ** 0.85;
-    this.scene.fog.near = 12 * k;
-    this.scene.fog.far = 26 * k;
-    this.camera.position.set(r.tx + (r.px - r.tx) * k + px, r.ty + (r.py - r.ty) * k + py * 0.5, r.tz + (r.pz - r.tz) * k);
-    this.camera.lookAt(r.tx + px * 0.4, r.ty + py * 0.2, r.tz);
     if (this.camera.fov !== r.fov) {
       this.camera.fov = r.fov;
       this.camera.updateProjectionMatrix();
     }
-    this.camera.updateMatrixWorld();
+    let k = Math.max(1, this.frameAspect / this.camera.aspect) ** 0.85;
+    if (this.keep) {
+      const need = this.fitFor(k, px, py);
+      this.kFit = this.kFit == null ? need : damp(this.kFit, need, 3, dt);
+      k = Math.max(k, this.kFit);
+    }
+    this.scene.fog.near = 12 * k;
+    this.scene.fog.far = 26 * k;
+    this.place(k, px, py);
     for (const a of this.anchors) this.placeAnchor(a);
     this.renderer.render(this.scene, this.camera);
   }
