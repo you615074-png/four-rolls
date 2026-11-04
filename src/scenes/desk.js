@@ -71,6 +71,7 @@ const goEdit = () => (location.href = './edit.html');
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 const smooth = (v) => v * v * (3 - 2 * v);
 const VIEW = { py: 8.2, pz: 5.6, tz: 0.35 };
+const VIEW_AT = { x: 0.3, z: 0.35 }; // the point on the desk at the middle of the desk view
 const LIFT = 2.0; // how high a can is raised before it travels: well clear of the walls
 
 /**
@@ -95,7 +96,21 @@ export function deskScene(stage, app) {
   const lay = { narrow: isNarrow(), k: isNarrow() ? 1 : 0 };
   const fit = { v: st.letterRead ? 1 : 0 }; // the wider frame comes in with the rolls
   const mixed = (a, b) => Object.fromEntries(Object.keys(a).map((key) => [key, a[key] + (b[key] - a[key]) * lay.k]));
-  const spot = (i) => mixed(LAYOUT[i], LAYOUT_NARROW[i]);
+  // the rolls land clear of the box; once it has been carried off they gather into the middle
+  // of the frame, as a group, keeping the way they were scattered
+  const gather = ROLLS.map(() => ({ v: st.letterRead ? 1 : 0 }));
+  const landed = (i) => mixed(LAYOUT[i], LAYOUT_NARROW[i]);
+  const centreOf = (L) => ({ x: L.x - 0.11 * Math.cos(L.yaw), z: L.z + 0.11 * Math.sin(L.yaw) }); // (measured: the can's middle sits just behind its holder)
+  const spot = (i) => {
+    let cx = 0, cz = 0;
+    for (let j = 0; j < ROLLS.length; j++) {
+      const c = centreOf(landed(j));
+      cx += c.x / ROLLS.length;
+      cz += c.z / ROLLS.length;
+    }
+    const L = landed(i), g = gather[i].v;
+    return { ...L, x: L.x + (VIEW_AT.x - cx) * g, z: L.z + (VIEW_AT.z - cz) * g };
+  };
   const asideAt = () => mixed(ENV_ASIDE, ENV_NARROW);
   const AIM_WIDE = new THREE.Vector3(0.3, 0, 0.4), AIM_NARROW = new THREE.Vector3(0.7, 0, 1.9);
   stage.onFrame(() => {
@@ -160,7 +175,9 @@ export function deskScene(stage, app) {
       const L = spot(i), a = packedAt(i);
       const p = canPath(s.t, a, L);
       const nudge = s.t < 1 || opened.has(i) ? 0 : Math.max(0, Math.sin(t * 1.4 - i * 1.6)) ** 14;
-      holder.position.set(p.x, p.y + s.drop + s.h * 0.24, p.z);
+      // a small hop while it is moved to the middle, so it is carried, not dragged
+      const hop = Math.sin(Math.PI * gather[i].v) * 0.32;
+      holder.position.set(p.x, p.y + hop + s.drop + s.h * 0.24, p.z);
       holder.rotation.y = L.yaw * p.turn + s.h * 0.1;
       // a small sway while it's in the air, gone by the time it lands
       holder.rotation.x = Math.sin(Math.PI * p.turn) * 0.08;
@@ -272,7 +289,10 @@ export function deskScene(stage, app) {
           makePickable();
           ready();
           // the card comes once the box is gone, not over the top of it
-          takeBoxAway(() => hud.toast('four rolls, out of the box', { kicker: 'the parcel', line: 'open any one, in any order', hold: 2.4 }));
+          takeBoxAway(() => {
+            gather.forEach((g, i) => gsap.to(g, { v: 1, duration: 0.9, delay: i * 0.12, ease: 'power2.inOut', onStart: () => sfx.tick(0.5 + i * 0.04, 0.1) }));
+            hud.toast('four rolls, out of the box', { kicker: 'the parcel', line: 'open any one, in any order', hold: 2.4 });
+          });
         };
       } else ready();
     }, envOnScreen);
@@ -441,10 +461,14 @@ function foldRig(paper) {
       position: 'absolute', left: '0', top: `${i * third}px`, width: '100%', height: `${third + (i < 2 ? 0.5 : 0)}px`,
       transformStyle: 'preserve-3d', transformOrigin: i === 0 ? '50% 100%' : i === 2 ? '50% 0%' : '50% 50%',
     });
+    // each panel carries only its own third of the sheet: the copy is clipped to that band,
+    // otherwise every panel would still show the whole letter and nothing would look folded
     const face = paper.cloneNode(true);
+    const cut = `inset(${i * third}px 0 ${Math.max(0, r.height - (i + 1) * third - (i < 2 ? 0.5 : 0))}px 0)`;
     Object.assign(face.style, {
       position: 'absolute', left: '0', top: `${-i * third}px`, width: `${r.width}px`, height: `${r.height}px`,
       maxHeight: 'none', margin: '0', transform: 'none', overflow: 'hidden', backfaceVisibility: 'hidden', boxSizing: 'border-box',
+      clipPath: cut, boxShadow: 'none',
     });
     const back = document.createElement('div');
     Object.assign(back.style, {
