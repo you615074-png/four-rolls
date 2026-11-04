@@ -310,13 +310,23 @@ function lightRoll(stage, index, stats) {
     new THREE.MeshBasicMaterial({ map: glowTexture(), color: new THREE.Color(1.7, 1.6, 1.45), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }),
   );
   stage.world.add(glow);
-  // where a held frame is brought: up toward the light, and closer to you (it isn't enlarged)
-  const shelf = new THREE.Vector3(stage.rig.tx - 0.2, 1.45, 1.55);
-  const target = shelf.clone();
+  // where a held frame is brought: right up in front of you, close enough that the photo fills
+  // most of the screen (worked out from the view, the screen's shape and which way the photo
+  // stands), a little below the middle so the caption over it stays clear; turned to face you
+  const target = new THREE.Vector3();
   const glowHome = new THREE.Vector3();
-  const aim = () => {
-    target.copy(shelf).lerp(stage.camera.position, 0.24);
-    glowHome.set(target.x + 0.15, target.y + 0.3, target.z - 0.6);
+  let face = 0; // the tilt that turns the frame toward the camera
+  const FILL_H = 0.78, FILL_W = 0.9; // the most of the screen's height and width the film may take
+  // `wide`: the frame lies on its side (a landscape photo, face up); turned over it stands upright
+  const aim = (it, wide = !!it && isWide(it.frame)) => {
+    const cam = stage.camera;
+    const t2 = 2 * Math.tan(THREE.MathUtils.degToRad(cam.fov / 2));
+    const fh = wide ? FILM.pitch * CUT_W : FILM.height, fw = wide ? FILM.height : FILM.pitch * CUT_W;
+    const d = Math.max(fh / (FILL_H * t2), fw / (FILL_W * t2 * cam.aspect), 1.2);
+    const ray = new THREE.Vector3(0, -0.07, 0.5).unproject(cam).sub(cam.position).normalize();
+    target.copy(cam.position).addScaledVector(ray, d);
+    face = -Math.atan2(cam.position.y - target.y, cam.position.z - target.z);
+    glowHome.set(target.x + 0.15, target.y + 0.3, target.z - 0.9);
   };
   aim();
   glow.position.copy(glowHome);
@@ -393,7 +403,7 @@ function lightRoll(stage, index, stats) {
     gsap.killTweensOf(strip, 'pulled');
     guide.hide();
     sfx.paper();
-    aim();
+    aim(it);
     held = it;
     it.out = true;
     it.flipped = false;
@@ -408,7 +418,7 @@ function lightRoll(stage, index, stats) {
     it.tl = gsap.timeline({ onComplete: () => (it.ready = true) })
       .to(it.seg.position, { y: it.seg.position.y + 0.55, duration: 0.3, ease: 'power2.out' })
       .to(it.seg.position, { x: target.x, y: target.y, z: target.z, duration: 0.8, ease: 'power3.inOut' })
-      .to(it.seg.rotation, { x: 0, y: -0.08, z: upright(it), duration: 0.8, ease: 'power3.inOut' }, '<');
+      .to(it.seg.rotation, { x: face, y: -0.08, z: upright(it), duration: 0.8, ease: 'power3.inOut' }, '<');
     gsap.to(it.mat.uniforms.uNeg, { value: 0, duration: 1.4, delay: 0.45, ease: 'power2.inOut' });
   };
 
@@ -438,14 +448,16 @@ function lightRoll(stage, index, stats) {
       ? { small: `THE BACK · ${it.frame.date}`, title: 'in pencil, on a slip of paper' }
       : { small: `${it.frame.date} · FRAME ${frameNo(it.i)}`, title: it.frame.title });
     gsap.to(glow.material, { opacity: it.flipped ? 0.4 : 0.95, duration: 0.8 });
+    // the back is read upright, so a landscape frame comes to where an upright one would be
+    aim(it, it.flipped ? false : isWide(it.frame));
     it.tl = gsap.timeline({ onComplete: () => {
       it.tl = null;
       it.ready = true;
       if (!it.flipped) dropNote(it);
     } })
-      .to(it.seg.position, { y: target.y + 0.2, z: target.z + 0.25, duration: 0.45, ease: 'power2.out' })
+      .to(it.seg.position, { x: target.x, y: target.y + 0.12, z: target.z - 0.2, duration: 0.45, ease: 'power2.out' })
       .to(it.seg.position, { y: target.y, z: target.z, duration: 0.55, ease: 'power2.inOut' })
-      .to(it.seg.rotation, { y: it.flipped ? Math.PI + 0.06 : -0.08, x: 0, z: it.flipped ? -0.03 : upright(it), duration: 1.0, ease: 'power3.inOut' }, 0);
+      .to(it.seg.rotation, { y: it.flipped ? Math.PI + 0.06 : -0.08, x: face, z: it.flipped ? -0.03 : upright(it), duration: 1.0, ease: 'power3.inOut' }, 0);
   };
 
   stage.onFrame((dt) => {
@@ -455,7 +467,7 @@ function lightRoll(stage, index, stats) {
     const r = held.seg.rotation;
     const k = held.flipped ? 0.6 : 1;
     r.y = damp(r.y, (held.flipped ? Math.PI + 0.06 : -0.08) + tx * k, 8, dt);
-    r.x = damp(r.x, ty * k, 8, dt);
+    r.x = damp(r.x, face + ty * k, 8, dt);
     if (held.flipped) return;
     glow.position.x = damp(glow.position.x, glowHome.x - tx * 1.4, 6, dt);
     glow.position.y = damp(glow.position.y, glowHome.y + ty * 1.2, 6, dt);
