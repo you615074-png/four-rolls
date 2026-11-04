@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { ROLLS, COPY } from '../content.js';
 import { hud } from '../hud.js';
 import { sfx } from '../sfx.js';
-import { CAN, FILM, canister, pen, slideViewer, stripSegment } from '../props.js';
+import { CAN, FILM, canister, slideViewer, stripSegment } from '../props.js';
 import {
   FONT, canvas, canvasTexture, cardTexture, damp, glowTexture, handLoop,
   isWide, photoMaterial, photoTexture, releaseRoll, smooth,
@@ -12,95 +12,6 @@ const gsap = window.gsap;
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const STILL = 3;
 const frameNo = (i) => String(i + 1).padStart(2, '0');
-
-function tickMark() {
-  const [c, g] = canvas(256, 256);
-  g.strokeStyle = '#e04a3a';
-  g.lineWidth = 14;
-  g.lineCap = 'round';
-  g.lineJoin = 'round';
-  g.beginPath();
-  g.moveTo(58, 142);
-  g.quadraticCurveTo(84, 160, 104, 196);
-  g.quadraticCurveTo(140, 110, 206, 58);
-  g.stroke();
-  const m = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.5, 0.5),
-    new THREE.MeshBasicMaterial({ map: canvasTexture(c), transparent: true, depthWrite: false, opacity: 0.85 }),
-  );
-  m.rotation.x = -Math.PI / 2;
-  return m;
-}
-
-/* ---------- the table: four rolls ---------- */
-
-export function tableScene(stage, app) {
-  const opened = app.state.visited;
-  hud.set({ scene: 'SCENE 04 · THE ROLLS', count: `${opened.size} OF 4 OPENED`, title: true });
-  stage.view({ pos: [0.3, 8.2, 5.6], target: [0.3, 0, 0.35], fov: 34 });
-  stage.light({ pos: [0.2, 9, 3.4], target: [0.3, 0, 0.3], intensity: 150, angle: 0.72 });
-  stage.parallaxAmount = 0.18;
-
-  const layout = [
-    { x: -2.75, z: -0.95, yaw: 0.42, roll: 1.0 },
-    { x: -0.75, z: 1.35, yaw: -0.38, roll: 0.75 },
-    { x: 1.45, z: -1.55, yaw: 0.12, roll: 0.95 },
-    { x: 3.35, z: 0.45, yaw: -0.52, roll: 0.85 },
-  ];
-
-  let invite = null;
-  ROLLS.forEach((roll, i) => {
-    const L = layout[i];
-    const holder = new THREE.Group();
-    const tilt = new THREE.Group();
-    const can = canister(roll);
-    tilt.rotation.z = Math.PI / 2;
-    tilt.position.set(CAN.h / 2, CAN.r + 0.03, 0);
-    tilt.add(can);
-    holder.add(tilt);
-    holder.position.set(L.x, 0, L.z);
-    holder.rotation.y = L.yaw;
-    stage.world.add(holder);
-
-    const st = { h: 0, to: 0, drop: 0.6 };
-    gsap.to(st, { drop: 0, duration: 0.9, delay: 0.25 + 0.08 * i, ease: 'bounce.out' });
-    stage.pick(holder, {
-      label: opened.has(i) ? `${roll.name} · again` : `open ${roll.name}`,
-      enter: () => {
-        st.to = 1;
-        invite?.hide();
-      },
-      leave: () => (st.to = 0),
-      click: () => app.go('roll', { index: i }),
-    });
-    stage.onFrame((dt, t) => {
-      st.h = damp(st.h, st.to, 9, dt);
-      // rolls you haven't opened take turns giving a little nudge
-      const nudge = opened.has(i) ? 0 : Math.max(0, Math.sin(t * 1.4 - i * 1.6)) ** 14;
-      holder.position.y = st.drop + st.h * 0.24;
-      holder.rotation.y = L.yaw + st.h * 0.1;
-      can.rotation.y = L.roll + nudge * 0.25 + st.h * 0.15;
-    });
-    if (opened.has(i)) {
-      const tick = tickMark();
-      tick.position.set(L.x + 0.1, 0.012, L.z + 0.8);
-      stage.world.add(tick);
-    }
-  });
-
-  // a red marker and a pencil left by the last roll
-  const p1 = pen('red');
-  p1.rotation.set(Math.PI / 2, 0, 0.5);
-  p1.position.set(3.6, 0.07, 1.75);
-  const p2 = pen('pencil');
-  p2.rotation.set(Math.PI / 2, 0, -0.35);
-  p2.position.set(4.2, 0.05, 1.55);
-  stage.world.add(p1, p2);
-
-  if (!opened.size) invite = stage.anchor(new THREE.Vector3(-0.75, 0.9, 1.35), 'tap a roll to open it', { dy: -26 });
-  hud.say(COPY.pickOne);
-  if (opened.size === ROLLS.length) hud.cta(COPY.toDarkroom, () => app.go('lightbox'));
-}
 
 /* ---------- a strip standing on the table, coming out of its can ---------- */
 
@@ -131,14 +42,32 @@ function standingStrip(stage, rollIndex, { pulled, min = 0.6, x0 = -0.7, z = 0, 
     at(it) {
       return strip.pulled + strip.tease - (it.i + 0.5) * FILM.pitch;
     },
+    // hover lifts and click hops spread along the film as one smooth bump,
+    // so the strip bends instead of breaking into steps
+    bump(s) {
+      let y = 0;
+      for (const it of items) {
+        const h = it.out ? 0 : it.lift + it.hop;
+        if (h > 0.0005) y += h * Math.exp(-(((s - strip.at(it)) / (FILM.pitch * 0.75)) ** 2));
+      }
+      return y;
+    },
+    // each frame spans exactly from the curve point at its left edge to the one at its right,
+    // so neighbours share their edges and the film reads as one continuous strip
     layout() {
+      const half = FILM.pitch / 2;
       for (const it of items) {
         if (it.out) continue;
         const s = strip.at(it);
         it.seg.visible = s > -FILM.pitch * 0.55;
-        const p = strip.place(s);
-        it.seg.position.set(p.x, p.y + it.lift + it.hop, p.z);
-        it.seg.rotation.set(0, p.ry, 0);
+        const a = strip.place(s - half), b = strip.place(s + half);
+        const ya = a.y + strip.bump(s - half), yb = b.y + strip.bump(s + half);
+        const dx = b.x - a.x, dy = yb - ya, dz = b.z - a.z;
+        const flat = Math.hypot(dx, dz);
+        it.seg.position.set((a.x + b.x) / 2, (ya + yb) / 2, (a.z + b.z) / 2);
+        it.seg.rotation.order = 'YZX';
+        it.seg.rotation.set(0, -Math.atan2(dz, dx), Math.atan2(dy, flat));
+        it.seg.scale.x = (Math.hypot(flat, dy) / FILM.pitch) * 1.02; // a hair of overlap closes the wedge on bends
       }
     },
   };
@@ -204,7 +133,7 @@ function dragToPull(stage, strip, { label = 'drag ⟷', onFirst } = {}) {
 export function rollScene(stage, app, { index }) {
   const roll = ROLLS[index];
   app.state.visited.add(index);
-  hud.set({ scene: 'SCENE 04 · THE ROLLS', count: `ROLL ${roll.no} · ${roll.name.toUpperCase()}`, back: true });
+  hud.set({ scene: `菲林 · ROLL ${roll.no}`, count: roll.name.toUpperCase(), back: true });
   hud.say(roll.hint);
   stage.parallaxAmount = 0.1;
   if (roll.mode === 'contact') return stillDeck(stage, app, index);
@@ -366,6 +295,7 @@ function lightRoll(stage, index, stats) {
     it.out = true;
     it.flipped = false;
     it.liftTo = it.lift = 0;
+    it.seg.rotation.order = 'XYZ';
     it.seg.traverse((m) => (m.castShadow = false));
     if (!it.label) it.seg.add((it.label = edgePrint(ROLLS[index], it)));
     hud.setCaption({ small: `${it.frame.date} · FRAME ${frameNo(it.i)}`, title: it.frame.title });

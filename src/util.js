@@ -3,8 +3,11 @@ import * as THREE from 'three';
 export const FONT = {
   mono: '"IBM Plex Mono", "SF Mono", Menlo, monospace',
   serif: '"Instrument Serif", "Songti SC", "STSong", Georgia, serif',
-  hand: '"Caveat", "Long Cang", "Songti SC", cursive',
-  type: '"Special Elite", "Courier New", monospace',
+  hand: '"Caveat", "LXGW WenKai TC", "Kaiti SC", cursive',
+  type: '"Special Elite", "LXGW WenKai TC", "Courier New", monospace',
+  sign: '"Noto Sans TC", "PingFang TC", "Heiti TC", sans-serif',
+  cond: '"Oswald", "Noto Sans TC", "PingFang SC", sans-serif',
+  kai: '"LXGW WenKai TC", "Kaiti SC", "STKaiti", serif',
 };
 
 export function rng(seed) {
@@ -70,7 +73,7 @@ export function addGrain(g, w, h, strength = 0.3) {
 }
 
 /** Soft low-frequency blotches: a tiny random canvas scaled up with smoothing. */
-function softNoise(g, w, h, seed, cells, alpha, colors) {
+export function softNoise(g, w, h, seed, cells, alpha, colors) {
   const [c, gg] = canvas(cells, cells);
   const r = rng(seed);
   for (let y = 0; y < cells; y++)

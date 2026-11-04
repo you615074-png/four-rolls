@@ -96,6 +96,15 @@ export const sfx = {
   success() {
     [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(f, 0.9, { gain: 0.07, delay: i * 0.09 }));
   },
+  /** A roller shutter running in its guides: a fast, slowing rattle. */
+  shutter(dur = 0.8) {
+    const n = Math.round(dur * 22);
+    for (let i = 0; i < n; i++) {
+      const at = (i / n) ** 1.15 * dur;
+      hiss(0.03, { gain: 0.05 + Math.random() * 0.03, freq: 1400 + Math.random() * 900, q: 3, delay: at });
+    }
+    hiss(dur, { gain: 0.03, type: 'lowpass', freq: 500, delay: 0 });
+  },
   get muted() {
     return muted;
   },

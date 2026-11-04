@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Shop Owner Desk</title>
+  <meta name="description" content="Set up the four rolls: photos, the words on their backs, and the letter.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600&family=IBM+Plex+Mono:wght@400;500&family=LXGW+WenKai+TC&family=Noto+Sans+TC:wght@500;700;900&family=Oswald:wght@400;500;600;700&family=Special+Elite&display=swap">
+  <link rel="stylesheet" href="./theme.css">
+  <link rel="stylesheet" href="./editor.css">
+</head>
+<body class="ed">
+  <header class="ed-top">
+    <a class="ed-sign" href="./index.html" title="回到店门口">
+      <b>四卷沖印</b><span>FOUR ROLLS PHOTO</span>
+    </a>
+    <p class="ed-role">店主后台 <small>只有你看得到这一页</small></p>
+    <p class="ed-status" id="status" aria-live="polite">改动会自动保存在这台设备的浏览器里</p>
+    <div class="ed-actions">
+      <button type="button" class="ed-btn ed-btn-ghost" id="reset">恢复示例</button>
+      <a class="ed-btn ed-btn-go" href="./index.html">开门营业 <i>→</i></a>
+    </div>
+  </header>
+
+  <nav class="ed-tabs" id="tabs" role="tablist"></nav>
+
+  <main class="ed-main">
+    <section class="ed-panel" id="letter-panel" hidden>
+      <div class="ed-letter-form">
+        <h2>开场的信 <small>客人进店，柜台上先放着这封信</small></h2>
+        <label>称呼<input id="l-to" type="text" maxlength="40"></label>
+        <label>正文 <small>空一行分段</small><textarea id="l-body" rows="12"></textarea></label>
+        <label>落款<input id="l-sign" type="text" maxlength="40"></label>
+      </div>
+      <article class="ed-letter-preview" aria-label="预览">
+        <p class="ed-letter-to" id="p-to"></p>
+        <div class="ed-letter-body" id="p-body"></div>
+        <p class="ed-letter-sign" id="p-sign"></p>
+      </article>
+    </section>
+
+    <section class="ed-panel" id="roll-panel" hidden>
+      <div class="ed-roll">
+        <div class="ed-bar">
+          <div>
+            <h2 id="roll-title"></h2>
+            <p id="roll-help"></p>
+          </div>
+          <label class="ed-btn ed-btn-red">
+            批量放入照片
+            <input id="bulk" type="file" accept="image/*" multiple hidden>
+          </label>
+        </div>
+        <p class="ed-bulk-note">从选中的格子开始按顺序填，原有照片会被替换。竖拍横拍都可以，横幅照片会自动用横的画框。</p>
+        <ol class="ed-grid" id="grid"></ol>
+      </div>
+
+      <aside class="ed-detail" id="detail" aria-label="这一格">
+        <header>
+          <b id="d-no"></b>
+          <span id="d-shape"></span>
+        </header>
+        <div class="ed-photo" id="d-photo">
+          <img id="d-img" alt="">
+          <p id="d-empty">还没有照片<br><small>点这里或把照片拖进来</small></p>
+        </div>
+        <div class="ed-photo-tools">
+          <label class="ed-btn ed-btn-small">换一张<input id="d-file" type="file" accept="image/*" hidden></label>
+          <button type="button" class="ed-btn ed-btn-small" id="d-rotate" title="顺时针转 90°">旋转 ↻</button>
+          <button type="button" class="ed-btn ed-btn-small ed-btn-ghost" id="d-remove">移除</button>
+        </div>
+        <div class="ed-fields" id="d-fields"></div>
+      </aside>
+    </section>
+  </main>
+
+  <script src="./vendor/gsap.min.js"></script>
+  <script type="module" src="./src/editor.js"></script>
+</body>
+</html>

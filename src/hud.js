@@ -111,26 +111,21 @@ export const hud = {
     gsap.fromTo(el, { opacity: 0, x: -12 }, { opacity: 1, x: 0, duration: 0.9, ease: 'power2.out' });
   },
 
-  /* Scene changes close an iris on the point that was tapped, then open it from the middle. */
-  iris: { r: -12 },
-  drawIris() {
-    this.fade.style.setProperty('--ir', `${this.iris.r}vmax`);
-  },
-  irisAt(x, y) {
-    const r = this.fade.getBoundingClientRect();
-    this.fade.style.setProperty('--ix', `${x - r.left}px`);
-    this.fade.style.setProperty('--iy', `${y - r.top}px`);
+  /* Scene changes pull the roller shutter down, swap what's behind it, then roll it back up. */
+  shutterY: 0,
+  drawShutter() {
+    this.fade.style.transform = `translateY(${this.shutterY}%)`;
   },
   open(duration = 1.1) {
-    const r = this.fade.getBoundingClientRect();
-    this.irisAt(r.left + r.width / 2, r.top + r.height * 0.48);
-    return gsap.to(this.iris, { r: 160, duration, ease: 'power2.inOut', onUpdate: () => this.drawIris() });
+    sfx.shutter?.(duration);
+    return gsap.to(this, { shutterY: -101, duration, ease: 'power2.inOut', onUpdate: () => this.drawShutter() });
   },
-  async cut(fn, from) {
+  async cut(fn) {
     this.fade.style.pointerEvents = 'auto';
-    gsap.killTweensOf(this.iris);
-    if (from) this.irisAt(from.x, from.y);
-    await gsap.to(this.iris, { r: -12, duration: 0.6, ease: 'power3.in', onUpdate: () => this.drawIris() });
+    gsap.killTweensOf(this, 'shutterY');
+    sfx.shutter?.(0.5);
+    await gsap.to(this, { shutterY: 0, duration: 0.5, ease: 'power2.in', onUpdate: () => this.drawShutter() });
+    sfx.clack();
     await fn();
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     this.fade.style.pointerEvents = '';

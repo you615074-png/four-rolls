@@ -369,6 +369,7 @@ export function buildDarkroom(stage) {
   stage.scene.environment = env;
   const prevFog = stage.scene.fog.color.getHex();
   stage.scene.fog.color.set('#0a0302');
+  stage.scene.background.set('#0a0302');
 
   // bench
   const bt = benchTextures();

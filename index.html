@@ -3,24 +3,25 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Four Rolls</title>
-  <meta name="description" content="Four rolls of film, a darkroom, and a letter.">
+  <title>Four Rolls Photo</title>
+  <meta name="description" content="A late-night photo shop: a letter at the counter, four rolls of film, and a darkroom out back.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600&family=IBM+Plex+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&family=Special+Elite&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600&family=IBM+Plex+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&family=LXGW+WenKai+TC&family=Noto+Sans+TC:wght@500;700;900&family=Oswald:wght@400;500;600;700&family=Special+Elite&display=swap">
+  <link rel="stylesheet" href="./theme.css">
   <link rel="stylesheet" href="./styles.css">
   <script type="importmap">{ "imports": { "three": "./vendor/three.module.js" } }</script>
   <script src="./vendor/gsap.min.js"></script>
 </head>
-<body data-scene="table">
+<body data-scene="shop">
   <main class="screen">
-    <div id="stage" class="stage" aria-label="A table with four rolls of film"></div>
+    <div id="stage" class="stage" aria-label="A photo shop at night"></div>
 
     <header class="hud">
-      <p id="hud-scene" class="hud-tag">SCENE 04 · THE ROLLS</p>
-      <p id="hud-count" class="hud-tag hud-right">4 ROLLS · 96 FRAMES</p>
+      <p id="hud-scene" class="hud-tag">街外 · OUTSIDE</p>
+      <p id="hud-count" class="hud-tag hud-right">營業中 · OPEN</p>
       <div id="hud-title" class="hud-title">
-        <h1>Four rolls, <em>one us</em></h1>
+        <h1><b>四卷沖印</b><span>FOUR ROLLS PHOTO</span></h1>
         <p>every season we kept, wound up and waiting</p>
       </div>
       <div id="hud-caption" class="hud-caption" hidden>
@@ -29,7 +30,7 @@
       </div>
     </header>
 
-    <button id="hud-back" class="hud-back" type="button" hidden>← BACK TO THE TABLE</button>
+    <button id="hud-back" class="hud-back" type="button" hidden><i>←</i> 櫃面 COUNTER</button>
     <button id="sound" class="sound" type="button" aria-pressed="true">sound on</button>
     <button id="side-note" class="side-note" type="button" hidden><b></b><span><em></em> <i>→</i></span></button>
 
@@ -43,12 +44,22 @@
 
     <div id="zoom" class="zoom" hidden><img alt="A frame seen through the loupe"></div>
 
-    <section id="letter" class="letter" hidden>
-      <div class="envelope"><span>for you</span></div>
+    <section id="letter" class="letter" hidden aria-label="A letter left at the counter">
       <article class="letter-paper">
-        <p class="letter-head">ROLL 04 · STILL US · 96 FRAMES</p>
-        <p class="letter-body"></p>
+        <p class="letter-head">FOUR ROLLS PHOTO · TO BE COLLECTED</p>
+        <p class="letter-to"></p>
+        <div class="letter-body"></div>
+        <p class="letter-sign"></p>
+        <button class="letter-done" type="button" hidden>put it away, see the rolls <i>→</i></button>
       </article>
+    </section>
+
+    <section id="receipt" class="receipt" hidden aria-label="Pick-up slip">
+      <header><b>四卷沖印</b><span>FOUR ROLLS PHOTO · 1 HOUR</span></header>
+      <p class="receipt-meta">取件單 No. 0425 · <span class="receipt-date"></span></p>
+      <ul class="receipt-rows"></ul>
+      <p class="receipt-foot">多謝光臨 · THANK YOU</p>
+      <div class="receipt-stamp">已取件<small>COLLECTED</small></div>
     </section>
 
     <div id="toast" class="toast" hidden><small></small><b></b><span></span></div>
@@ -56,11 +67,11 @@
     <div id="anchors" class="anchors"></div>
     <div id="grain" class="grain"></div>
     <div class="vignette"></div>
-    <div id="fade" class="fade"></div>
+    <div id="fade" class="shutter" aria-hidden="true"><span>四卷沖印 · FOUR ROLLS PHOTO</span></div>
   </main>
 
   <footer id="hint" class="hint">
-    <span id="hint-text">pick one</span>
+    <span id="hint-text"></span>
     <button id="hint-action" class="hint-action" type="button" hidden><span></span> <i>→</i></button>
     <button id="hint-cta" class="hint-cta" type="button" hidden><span></span> <i>→</i></button>
   </footer>

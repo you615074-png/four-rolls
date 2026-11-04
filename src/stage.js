@@ -1,5 +1,9 @@
 import * as THREE from 'three';
-import { damp, velvetTexture } from './util.js';
+import { damp } from './util.js';
+import { laminateTexture } from './shopSet.js';
+
+// the shop at night: dark teal shadows, fluorescent tubes overhead
+const LOOK = { bg: '#0c1312', sky: '#e3f4ee', ground: '#1a2321' };
 
 const gsap = window.gsap;
 const coarse = matchMedia('(pointer: coarse)').matches;
@@ -24,8 +28,8 @@ export class Stage {
     host.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color('#0a0302');
-    this.scene.fog = new THREE.Fog('#0a0302', 12, 26);
+    this.scene.background = new THREE.Color(LOOK.bg);
+    this.scene.fog = new THREE.Fog(LOOK.bg, 12, 26);
 
     this.camera = new THREE.PerspectiveCamera(34, 1, 0.05, 80);
     this.rig = { px: 0, py: 6, pz: 8, tx: 0, ty: 0, tz: 0, fov: 34 };
@@ -35,14 +39,14 @@ export class Stage {
 
     const table = new THREE.Mesh(
       new THREE.PlaneGeometry(80, 80),
-      new THREE.MeshStandardMaterial({ color: '#9a9a9a', map: velvetTexture(), roughness: 0.94, dithering: true }),
+      new THREE.MeshStandardMaterial({ color: '#8f9693', map: laminateTexture(), roughness: 0.55, dithering: true }),
     );
     table.rotation.x = -Math.PI / 2;
     table.receiveShadow = true;
     this.table = table;
     this.scene.add(table);
 
-    this.hemi = new THREE.HemisphereLight('#ffd9c0', '#2a0805', 0.4);
+    this.hemi = new THREE.HemisphereLight(LOOK.sky, LOOK.ground, 0.4);
     this.scene.add(this.hemi);
     this.key = new THREE.SpotLight('#ffe2bf', 120, 30, 0.62, 0.75, 1.4);
     this.key.position.set(1, 9, 4);
@@ -108,6 +112,13 @@ export class Stage {
       }
     });
     this.world.clear();
+    // every scene starts from the shop's own light; scenes that change it don't have to undo it
+    this.scene.background.set(LOOK.bg);
+    this.scene.fog.color.set(LOOK.bg);
+    this.scene.environment = null;
+    this.hemi.color.set(LOOK.sky);
+    this.hemi.groundColor.set(LOOK.ground);
+    this.table.visible = true;
   }
 
   pick(obj, handlers) {

@@ -1,0 +1,24 @@
+/* The shop's paint and lettering: a Hong Kong photo-finishing shop, late at night.
+   Signboard red and lamp yellow on black, mint tiles, fluorescent white, receipt paper. */
+:root {
+  --red: #d22a20;
+  --red-deep: #8e1912;
+  --yellow: #f5c32c;
+  --yellow-soft: #ffe08a;
+  --black: #151413;
+  --ink: #f6efe2;
+  --ink-dim: rgba(246, 239, 226, 0.62);
+  --mint: #a9d6c6;
+  --mint-deep: #2f6656;
+  --fluoro: #eaf7f2;
+  --paper: #f4ecda;
+  --paper-ink: #24201c;
+  --neon: #ff4a5c;
+
+  --sign: "Noto Sans TC", "PingFang TC", "Heiti TC", sans-serif;
+  --cond: "Oswald", "Noto Sans TC", "PingFang SC", sans-serif;
+  --mono: "IBM Plex Mono", "SF Mono", Menlo, monospace;
+  --hand: "Caveat", "LXGW WenKai TC", "Kaiti SC", cursive;
+  --kai: "LXGW WenKai TC", "Kaiti SC", "STKaiti", serif;
+  --type: "Special Elite", "LXGW WenKai TC", "Courier New", monospace;
+}
