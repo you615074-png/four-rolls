@@ -11,16 +11,40 @@ import {
 const gsap = window.gsap;
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const STILL = 3;
+const CUT_W = 0.94; // a cut frame is a little narrower than its pitch: the gap is the cut
 const frameNo = (i) => String(i + 1).padStart(2, '0');
 
 /* ---------- a strip standing on the table, coming out of its can ---------- */
 
-function standingStrip(stage, rollIndex, { pulled, min = 0.6, x0 = -0.7, z = 0, neg = 1 }) {
+function standingStrip(stage, rollIndex, { pulled, min = 0.6, x0 = -0.7, z = 0, neg = 1, cut = false }) {
   const roll = ROLLS[rollIndex];
   const can = canister(roll);
   can.position.set(x0, 0, z);
   stage.world.add(can);
   const mouth = x0 + CAN.r - 0.05;
+  if (cut) {
+    // already cut into single frames: they stand in a grooved rail coming out of a file box
+    can.visible = false;
+    const wood = new THREE.MeshStandardMaterial({ color: '#3a2a20', roughness: 0.6 });
+    const fileBox = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.25, 0.8), new THREE.MeshStandardMaterial({ color: '#2b2622', roughness: 0.75 }));
+    fileBox.position.set(x0 - 0.05, 0.625, z);
+    fileBox.castShadow = fileBox.receiveShadow = true;
+    stage.world.add(fileBox);
+    const label = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.3), new THREE.MeshBasicMaterial({ map: cardTexture({ w: 310, h: 150, bg: '#e9dfc7', lines: [
+      { text: roll.name, font: `46px ${FONT.hand}`, x: 155, y: 70, align: 'center', color: '#2b241e' },
+      { text: 'CUT · 24 FRAMES', font: `500 15px ${FONT.mono}`, x: 155, y: 118, align: 'center', color: '#7a6d60' },
+    ] }), color: '#d9d0c0' }));
+    label.position.set(x0 - 0.05, 0.75, z + 0.401);
+    stage.world.add(label);
+    for (let s = -0.3; s < 9; s += 0.25) {
+      const a = { x: mouth + s, z: z + 0.06 * Math.sin(s * 0.8) - 0.004 * s * s };
+      const piece = new THREE.Mesh(new THREE.BoxGeometry(0.27, 0.07, 0.14), wood);
+      piece.position.set(a.x, 0.035, a.z);
+      piece.rotation.y = -Math.atan(0.048 * Math.cos(s * 0.8) - 0.008 * s);
+      piece.receiveShadow = true;
+      stage.world.add(piece);
+    }
+  }
   const items = roll.frames.map((f, i) => {
     const seg = new THREE.Group();
     seg.add(stripSegment());
@@ -60,6 +84,15 @@ function standingStrip(stage, rollIndex, { pulled, min = 0.6, x0 = -0.7, z = 0, 
         if (it.out) continue;
         const s = strip.at(it);
         it.seg.visible = s > -FILM.pitch * 0.55;
+        if (cut) {
+          // single frames: each stands on its own in the rail, with a gap either side
+          const p = strip.place(s);
+          it.seg.position.set(p.x, p.y + it.lift + it.hop, p.z);
+          it.seg.rotation.order = 'YZX';
+          it.seg.rotation.set(0, p.ry, 0);
+          it.seg.scale.x = CUT_W;
+          continue;
+        }
         const a = strip.place(s - half), b = strip.place(s + half);
         const ya = a.y + strip.bump(s - half), yb = b.y + strip.bump(s + half);
         const dx = b.x - a.x, dy = yb - ya, dz = b.z - a.z;
@@ -99,9 +132,12 @@ function dragToPull(stage, strip, { label = 'drag ⟷', onFirst } = {}) {
   };
   const settle = (to, duration = 1.0) =>
     gsap.to(strip, { pulled: clamp(to, strip.min, strip.max), duration, ease: 'power3.out', overwrite: true });
+  // while a frame is out of the strip (or on its way back) the film stays put
+  const locked = () => strip.locked?.();
   stage.dragHandler = {
     label,
     start: () => {
+      if (locked()) return;
       gsap.killTweensOf(strip, 'pulled');
       wheelTo = null;
     },
@@ -111,6 +147,7 @@ function dragToPull(stage, strip, { label = 'drag ⟷', onFirst } = {}) {
       touched();
     },
     move: (dx) => {
+      if (locked()) return;
       const now = performance.now();
       let d = dx * 0.011;
       if (strip.pulled + d > strip.max || strip.pulled + d < strip.min) d *= 0.3;
@@ -119,11 +156,13 @@ function dragToPull(stage, strip, { label = 'drag ⟷', onFirst } = {}) {
       last = now;
     },
     end: () => {
+      if (locked()) return;
       if (performance.now() - last > 90) v = 0;
       settle(strip.pulled + clamp(v * 0.22, -2.4, 2.4));
     },
   };
   stage.wheelHandler = (delta) => {
+    if (locked()) return;
     touched();
     wheelTo = clamp((wheelTo ?? strip.pulled) + delta * 0.006, strip.min, strip.max);
     gsap.to(strip, { pulled: wheelTo, duration: 0.6, ease: 'power3.out', overwrite: true, onComplete: () => (wheelTo = null) });
@@ -133,6 +172,7 @@ function dragToPull(stage, strip, { label = 'drag ⟷', onFirst } = {}) {
 export function rollScene(stage, app, { index }) {
   const roll = ROLLS[index];
   app.state.visited.add(index);
+  app.state.lastRoll = index;
   hud.set({ scene: `ROLL ${roll.no} · OF FOUR`, count: roll.name.toUpperCase(), back: true });
   hud.say(roll.hint);
   stage.parallaxAmount = 0.1;
@@ -231,9 +271,9 @@ function developRoll(stage, index, stats) {
   }
 }
 
-/* slow days: lift one frame to the light and tilt it with the pointer. */
+/* slow days: the roll is cut into single frames. Lift one to the light and tilt it with the pointer. */
 function lightRoll(stage, index, stats) {
-  const strip = standingStrip(stage, index, { pulled: 0.8, min: 0.8 });
+  const strip = standingStrip(stage, index, { pulled: 0.8, min: 0.8, cut: true });
   gsap.to(strip, { pulled: 5.6, duration: 1.8, delay: 0.3, ease: 'power3.out' });
   dragToPull(stage, strip, { label: 'drag ⟷ · tap a frame' });
 
@@ -242,10 +282,19 @@ function lightRoll(stage, index, stats) {
     new THREE.MeshBasicMaterial({ map: glowTexture(), color: new THREE.Color(1.7, 1.6, 1.45), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }),
   );
   stage.world.add(glow);
-  const target = new THREE.Vector3(stage.rig.tx - 0.2, 1.45, 1.55);
-  const glowHome = new THREE.Vector3(target.x + 0.15, target.y + 0.35, target.z - 0.5);
+  // where a held frame is brought: up toward the light, and closer to you (it isn't enlarged)
+  const shelf = new THREE.Vector3(stage.rig.tx - 0.2, 1.45, 1.55);
+  const target = shelf.clone();
+  const glowHome = new THREE.Vector3();
+  const aim = () => {
+    target.copy(shelf).lerp(stage.camera.position, 0.24);
+    glowHome.set(target.x + 0.15, target.y + 0.3, target.z - 0.6);
+  };
+  aim();
   glow.position.copy(glowHome);
   let held = null;
+  let returning = 0;
+  strip.locked = () => !!held || returning > 0;
   const guide = stage.anchor(strip.items[2].seg, 'tap one', { dy: -120 });
 
   const dropNote = (it) => {
@@ -256,23 +305,46 @@ function lightRoll(stage, index, stats) {
     it.note = null;
   };
 
+  // the frame's own slot in the rail, as one pose (position + orientation in the layout's own order)
+  const slotPose = (it) => {
+    const p = strip.place(strip.at(it));
+    return { pos: new THREE.Vector3(p.x, p.y, p.z), q: new THREE.Quaternion().setFromEuler(new THREE.Euler(0, p.ry, 0, 'YZX')) };
+  };
+  const stopMoving = (it) => {
+    it.tl?.kill();
+    it.tl = null;
+    if (it.back) {
+      it.back.kill();
+      it.back = null;
+      returning--;
+    }
+    gsap.killTweensOf([it.seg.position, it.seg.rotation]);
+  };
+
   const putBack = (it) => {
     held = null;
     it.ready = false;
     it.flipped = false;
     hud.setCaption(null);
     hud.say(ROLLS[index].hint);
-    gsap.killTweensOf(it.seg.position);
-    gsap.killTweensOf(it.seg.rotation);
+    stopMoving(it);
     gsap.to(glow.material, { opacity: 0, duration: 0.5 });
     gsap.to(it.mat.uniforms.uNeg, { value: 1, duration: 0.9 });
     gsap.to(it.mat.uniforms.uBright, { value: 0.92, duration: 0.6 });
-    gsap.to(it.seg.scale, { x: 1, y: 1, z: 1, duration: 0.8, ease: 'power3.inOut' });
-    const p = strip.place(strip.at(it));
-    gsap.to(it.seg.rotation, { x: 0, y: p.ry, z: 0, duration: 0.8, ease: 'power3.inOut' });
-    gsap.to(it.seg.position, {
-      x: p.x, y: p.y, z: p.z, duration: 0.8, ease: 'power3.inOut',
+    // slerp from wherever it is to its slot, re-reading the slot every frame
+    const fromP = it.seg.position.clone(), fromQ = it.seg.quaternion.clone();
+    const k = { t: 0 };
+    returning++;
+    it.back = gsap.to(k, {
+      t: 1, duration: 0.8, ease: 'power3.inOut',
+      onUpdate: () => {
+        const slot = slotPose(it);
+        it.seg.position.lerpVectors(fromP, slot.pos, k.t);
+        it.seg.quaternion.slerpQuaternions(fromQ, slot.q, k.t);
+      },
       onComplete: () => {
+        it.back = null;
+        returning--;
         it.out = false;
         it.seg.children[0].castShadow = true;
         dropNote(it);
@@ -289,22 +361,27 @@ function lightRoll(stage, index, stats) {
 
   const holdUp = (it) => {
     if (held) putBack(held);
+    stopMoving(it);
+    gsap.killTweensOf(strip, 'pulled');
     guide.hide();
     sfx.paper();
+    aim();
     held = it;
     it.out = true;
     it.flipped = false;
     it.liftTo = it.lift = 0;
-    it.seg.rotation.order = 'XYZ';
+    it.seg.rotation.reorder('XYZ');
     it.seg.traverse((m) => (m.castShadow = false));
     if (!it.label) it.seg.add((it.label = edgePrint(ROLLS[index], it)));
     hud.setCaption({ small: `${it.frame.date} · FRAME ${frameNo(it.i)}`, title: it.frame.title });
     hud.say('tap it again to turn it over · tap outside to put it back');
     gsap.to(glow.material, { opacity: 0.95, duration: 0.9, delay: 0.25 });
-    gsap.to(it.seg.position, { x: target.x, y: target.y, z: target.z, duration: 0.9, ease: 'power3.inOut' });
-    gsap.to(it.seg.rotation, { x: 0, y: -0.08, z: upright(it), duration: 0.9, ease: 'power3.inOut', onComplete: () => (it.ready = true) });
-    gsap.to(it.seg.scale, { x: 1.28, y: 1.28, z: 1.28, duration: 0.9, ease: 'power3.inOut' });
-    gsap.to(it.mat.uniforms.uNeg, { value: 0, duration: 1.4, delay: 0.35, ease: 'power2.inOut' });
+    // lifted straight up out of the rail first, then brought to the light
+    it.tl = gsap.timeline({ onComplete: () => (it.ready = true) })
+      .to(it.seg.position, { y: it.seg.position.y + 0.55, duration: 0.3, ease: 'power2.out' })
+      .to(it.seg.position, { x: target.x, y: target.y, z: target.z, duration: 0.8, ease: 'power3.inOut' })
+      .to(it.seg.rotation, { x: 0, y: -0.08, z: upright(it), duration: 0.8, ease: 'power3.inOut' }, '<');
+    gsap.to(it.mat.uniforms.uNeg, { value: 0, duration: 1.4, delay: 0.45, ease: 'power2.inOut' });
   };
 
   // turning the frame over shows what was written on the slip taped behind it
@@ -333,7 +410,8 @@ function lightRoll(stage, index, stats) {
       ? { small: `THE BACK · ${it.frame.date}`, title: 'in pencil, on a slip of paper' }
       : { small: `${it.frame.date} · FRAME ${frameNo(it.i)}`, title: it.frame.title });
     gsap.to(glow.material, { opacity: it.flipped ? 0.4 : 0.95, duration: 0.8 });
-    gsap.timeline({ onComplete: () => {
+    it.tl = gsap.timeline({ onComplete: () => {
+      it.tl = null;
       it.ready = true;
       if (!it.flipped) dropNote(it);
     } })
@@ -482,7 +560,12 @@ function viewerRoll(stage, index, stats) {
         if (!found.size && !focusGuide) focusGuide = stage.anchor(wheel, '← drag to focus →', { dy: -40 });
       },
     });
+    // the film is fed through in whole frames, one step per clack, the can turning as the feed
+    // reel, until the frame on the screen is the one at the gate
     const times = [0, 0.08, 0.17, 0.28, 0.41, 0.57, 0.77];
+    const from = strip.pulled;
+    const to = Math.min(5.4 + FILM.pitch * (land + 1), strip.max);
+    const grid = (v) => 5.4 + Math.round((v - 5.4) / FILM.pitch) * FILM.pitch;
     times.forEach((at, k) => {
       tl.call(() => {
         const i = k === times.length - 1 ? land : Math.floor(Math.random() * total);
@@ -490,7 +573,10 @@ function viewerRoll(stage, index, stats) {
         sfx.tick(0.8 + k * 0.04, 0.16);
         screen.uniforms.uFlash.value = 0.55;
         gsap.to(screen.uniforms.uFlash, { value: 0, duration: 0.12, overwrite: true });
-        gsap.to(strip, { pulled: Math.min(5.4 + FILM.pitch * (i + 1), strip.max), duration: 0.25, ease: 'power1.out', overwrite: true });
+        const want = k === times.length - 1 ? to : grid(from + ((to - from) * (k + 1)) / times.length);
+        const step = want - strip.pulled;
+        gsap.to(strip, { pulled: want, duration: 0.07, ease: 'power2.out', overwrite: true });
+        gsap.to(strip.can.rotation, { y: `-=${step / CAN.r}`, duration: 0.07, ease: 'power2.out' });
       }, null, at);
     });
   };
@@ -664,9 +750,11 @@ function stillDeck(stage, app, index) {
     print: pileMat(stage, { at: homes.print, title: 'print these', sub: `DRAG RIGHT → · UP TO ${MAX_PRINTS}`, ink: '#a8261a', bg: '#f0d6c8' }),
   };
 
+  const scale = narrow ? 1.12 : 1.3;
+  const layer = 0.008 * scale + 0.002; // each sheet's own (scaled) thickness plus a hair of air
   const cards = roll.frames.map((f, i) => {
     const g = printCard(index, i, f);
-    g.scale.setScalar(narrow ? 1.12 : 1.3);
+    g.scale.setScalar(scale);
     stage.world.add(g);
     return { g, i, frame: f, jitter: { x: (Math.random() - 0.5) * 0.08, z: (Math.random() - 0.5) * 0.08, r: (Math.random() - 0.5) * 0.12 } };
   });
@@ -679,7 +767,7 @@ function stillDeck(stage, app, index) {
   const restAt = (where, k, c) => {
     const h = homes[where];
     const spread = where === 'deck' ? 0.35 : 1;
-    return { x: h.x + c.jitter.x * spread, y: 0.012 + k * 0.009, z: h.z + c.jitter.z * spread, r: c.jitter.r * (where === 'deck' ? 0.5 : 1.6) };
+    return { x: h.x + c.jitter.x * spread, y: 0.006 * scale + k * layer, z: h.z + c.jitter.z * spread, r: c.jitter.r * (where === 'deck' ? 0.5 : 1.6) };
   };
   const placeAll = () => {
     for (const where of ['deck', 'box', 'print']) {
@@ -704,15 +792,20 @@ function stillDeck(stage, app, index) {
   };
   sync();
 
-  // a print in flight from one place to another
+  // a print moving from one place to another: light paper skims over just above the table,
+  // slows on its own air, its leading edge lifted a touch, and settles flat once
   const fly = (c, where, k, then) => {
     const p = restAt(where, k, c);
-    gsap.killTweensOf(c.g.position);
+    gsap.killTweensOf([c.g.position, c.g.rotation]);
+    const dir = Math.sign(p.x - c.g.position.x) || 1;
     gsap.timeline({ onComplete: then })
-      .to(c.g.position, { x: p.x, z: p.z, duration: 0.55, ease: 'power3.out' }, 0)
-      .to(c.g.position, { y: 0.5, duration: 0.22, ease: 'power2.out' }, 0)
-      .to(c.g.position, { y: p.y, duration: 0.33, ease: 'bounce.out' }, 0.22)
-      .to(c.g.rotation, { y: p.r, z: 0, x: 0, duration: 0.55, ease: 'power3.out' }, 0);
+      .to(c.g.position, { x: p.x, z: p.z, duration: 0.75, ease: 'power3.out' }, 0)
+      .to(c.g.position, { y: p.y + 0.16, duration: 0.2, ease: 'power2.out' }, 0)
+      .to(c.g.position, { y: p.y + 0.012, duration: 0.42, ease: 'sine.inOut' }, 0.2)
+      .to(c.g.position, { y: p.y, duration: 0.22, ease: 'power1.out' }, 0.62)
+      .to(c.g.rotation, { y: p.r, duration: 0.75, ease: 'power3.out' }, 0)
+      .to(c.g.rotation, { z: -dir * 0.05, x: 0, duration: 0.25, ease: 'power2.out' }, 0)
+      .to(c.g.rotation, { z: 0, duration: 0.5, ease: 'sine.out' }, 0.3);
   };
 
   let refused = 0;
@@ -759,7 +852,7 @@ function stillDeck(stage, app, index) {
 
   const settle = (c) => {
     const p = restAt('deck', deck.length - 1, c);
-    gsap.to(c.g.position, { x: p.x, y: p.y, z: p.z, duration: 0.7, ease: 'elastic.out(1, 0.55)' });
+    gsap.to(c.g.position, { x: p.x, y: p.y, z: p.z, duration: 0.6, ease: 'power3.out' });
     gsap.to(c.g.rotation, { y: p.r, z: 0, duration: 0.6, ease: 'power3.out' });
   };
 

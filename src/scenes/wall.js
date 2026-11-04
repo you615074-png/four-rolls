@@ -125,6 +125,5 @@ export function wallScene(stage, app) {
   };
   stage.onEmptyClick = open;
   stage.pick(board, { cursor: 'pointer', label: 'put them away', click: open });
-  const timer = setTimeout(open, 9000);
-  return () => clearTimeout(timer);
+  // no timer: the board stays up, and the slow push-in plays out, until you tap
 }

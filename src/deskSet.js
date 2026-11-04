@@ -185,11 +185,89 @@ function lidTexture(to) {
 }
 
 /**
+ * One loop of string round the box. Its rest shape is a polyline with rounded corners;
+ * `pull(q, hand, slack)` draws it with q units already pulled out through the knot toward
+ * the hand: the rest of the cord slides back along its own path, so its free end comes
+ * round the box and out from underneath, and nothing passes through the box.
+ */
+class StringStrand {
+  constructor(corners, center, dir, r = 0.0125) {
+    this.r = r;
+    this.center = center;
+    this.dir = dir.clone().normalize();
+    // dense samples along the straight runs, then corner cutting rounds every bend
+    let pts = [];
+    for (let i = 0; i < corners.length - 1; i++) {
+      const a = corners[i], b = corners[i + 1];
+      const n = Math.max(1, Math.ceil(a.distanceTo(b) / 0.06));
+      for (let k = 0; k < n; k++) pts.push(a.clone().lerp(b, k / n));
+    }
+    pts.push(corners.at(-1).clone());
+    for (let it = 0; it < 3; it++) {
+      const next = [pts[0]];
+      for (let i = 0; i < pts.length - 1; i++) {
+        next.push(pts[i].clone().lerp(pts[i + 1], 0.25), pts[i].clone().lerp(pts[i + 1], 0.75));
+      }
+      next.push(pts.at(-1));
+      pts = next;
+    }
+    this.pts = pts;
+    this.cum = [0];
+    for (let i = 1; i < pts.length; i++) this.cum.push(this.cum[i - 1] + pts[i].distanceTo(pts[i - 1]));
+    this.len = this.cum.at(-1);
+    this.knot = pts[0].clone();
+    this.state = { q: 0, slack: 0 };
+  }
+  at(u, out = new THREE.Vector3()) {
+    u = Math.min(this.len, Math.max(0, u));
+    let lo = 1, hi = this.cum.length - 1;
+    while (lo < hi) {
+      const m = (lo + hi) >> 1;
+      if (this.cum[m] < u) lo = m + 1;
+      else hi = m;
+    }
+    const t = (u - this.cum[lo - 1]) / Math.max(1e-6, this.cum[lo] - this.cum[lo - 1]);
+    return out.copy(this.pts[lo - 1]).lerp(this.pts[lo], t);
+  }
+  points() {
+    const { q, slack } = this.state;
+    // the hand draws the cord out along `dir`; what's out spans hand to knot, with a little sag
+    const hand = this.knot.clone().addScaledVector(this.dir, q * 0.93);
+    const n = 200, out = [];
+    for (let k = 0; k <= n; k++) {
+      const s = (this.len * k) / n;
+      if (s < q) {
+        const f = s / q;
+        const p = hand.clone().lerp(this.knot, f);
+        p.y -= Math.sin(Math.PI * f) * Math.min(0.3, q * 0.04);
+        out.push(p);
+        continue;
+      }
+      const p = this.at(s - q);
+      if (slack) {
+        // loosened: the cord stands off the box a little, and bellies up along the top
+        const off = p.clone().sub(this.center).normalize();
+        p.addScaledVector(off, slack * 0.03);
+      }
+      out.push(p);
+    }
+    return out;
+  }
+  geometry() {
+    return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(this.points()), 240, this.r, 6, false);
+  }
+  redraw() {
+    this.mesh.geometry.dispose();
+    this.mesh.geometry = this.geometry();
+  }
+}
+
+/**
  * A kraft box tied with string. Returns the box group with the lid and the string
  * as separate parts so the scene can untie and lift them.
  */
 export function parcel({ to = 'you' } = {}) {
-  const W = 3.9, D = 2.3, H = 1.08, t = 0.05;
+  const W = 4.2, D = 2.3, H = 1.08, t = 0.05;
   const g = new THREE.Group();
   const [kc] = kraftTexture(512, 512, 3);
   const kraft = std('#ffffff', { map: canvasTexture(kc), roughness: 0.92 });
@@ -228,39 +306,45 @@ export function parcel({ to = 'you' } = {}) {
   lid.position.y = H + 0.03;
   g.add(lid);
 
-  // string tied round it, crossing over the lid, with a bow
+  // string tied round it, crossing over the lid, with a bow: two loops of one cord,
+  // drawn as tubes that follow the box, so they can go slack and slide off later
   const twine = new THREE.Group();
   const cord = new THREE.MeshStandardMaterial({ color: '#e6d6b4', roughness: 0.85, transparent: true });
   const y = H + 0.075;
-  const strand = (w, h, d, x, yy, z) => {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), cord);
-    m.position.set(x, yy, z);
-    twine.add(m);
+  const kx = 0.35; // where the strands cross and the knot sits
+  const skirtY = H + 0.03 - skirt;
+  // a loop in one vertical plane: from the knot out over the top, down the lid's skirt,
+  // in to the box wall, under the bottom, and back up the far side to the knot
+  const loopPath = (half, inner, along) => {
+    const pts = [[0, y], [half, y], [half, skirtY], [inner, -0.012], [-inner, -0.012], [-half, skirtY], [-half, y], [0, y]];
+    return pts.map(([a, h]) => along(a, h));
   };
-  strand(LW + 0.04, 0.025, 0.045, 0.35, y, 0);
-  strand(0.045, 0.025, LD + 0.04, 0.35, y, 0);
-  strand(0.045, H + 0.1, 0.025, 0.35, y / 2, LD / 2 + 0.02);
-  strand(0.045, H + 0.1, 0.025, 0.35, y / 2, -LD / 2 - 0.02);
-  strand(0.025, H + 0.1, 0.045, LW / 2 + 0.02, y / 2, 0);
-  strand(0.025, H + 0.1, 0.045, -LW / 2 - 0.02, y / 2, 0);
+  const strands = [
+    new StringStrand(loopPath(LW / 2 + 0.018, W / 2 + 0.012, (a, h) => new THREE.Vector3(a || kx, h, 0)), new THREE.Vector3(0, H / 2, 0), new THREE.Vector3(1, 0.85, -0.3)),
+    new StringStrand(loopPath(LD / 2 + 0.018, D / 2 + 0.012, (a, h) => new THREE.Vector3(kx, h + (h > H ? 0.008 : 0), a)), new THREE.Vector3(kx, H / 2, 0), new THREE.Vector3(0.9, 0.9, -0.45)),
+  ];
+  for (const st of strands) {
+    st.mesh = new THREE.Mesh(st.geometry(), cord);
+    twine.add(st.mesh);
+  }
   const bow = [];
   for (const s of [-1, 1]) {
     const loop = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.022, 8, 24), cord);
     loop.rotation.x = Math.PI / 2;
     loop.scale.set(1.3, 0.75, 1);
-    loop.position.set(0.35 + s * 0.2, y + 0.03, 0);
+    loop.position.set(kx + s * 0.2, y + 0.03, 0);
     loop.rotation.z = s * 0.35;
     twine.add(loop);
     bow.push(loop);
     const tail = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.02, 0.42), cord);
-    tail.position.set(0.35 + s * 0.12, y + 0.01, 0.24);
+    tail.position.set(kx + s * 0.12, y + 0.01, 0.24);
     tail.rotation.y = s * 0.5;
     twine.add(tail);
     bow.push(tail);
   }
   g.add(twine);
   shadowed(g);
-  return { group: g, lid, twine, bow, cord, W, D, H };
+  return { group: g, lid, twine, bow, cord, strands, W, D, H };
 }
 
 /* ---------- the letter's envelope ---------- */

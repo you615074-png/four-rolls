@@ -90,7 +90,7 @@ export function lightboxScene(stage, app) {
       g.position.set(x, top + k * 0.0005, z);
       stage.world.add(g);
       if (animate) gsap.from(g.position, { y: top + 1.2, x: x + 2.5, duration: 0.8, delay: 0.08 * k, ease: 'power3.out' });
-      return { g, frameIndex, frame: f, x, z, dot: null };
+      return { g, frameIndex, frame: f, x, z, scale, dot: null };
     });
   };
   lay(false);
@@ -104,8 +104,22 @@ export function lightboxScene(stage, app) {
   let over = null;
   const zoomCrop = (slot) => {
     lensMat.uniforms.uMap.value = photoTexture(STILL, slot.frameIndex, slot.frame);
-    lensMat.uniforms.uCrop.value.set(0.25, 0.3, 0.5, 0.4);
+    // the same quarter turn as the frame on the glass, so a landscape shot reads the same way
+    lensMat.uniforms.uTurn.value = isWide(slot.frame) ? 1 : 0;
     L.lens.material = lensMat;
+    aimLens(slot);
+  };
+  // the lens shows the patch of the frame right under it: the loupe's offset from the frame's
+  // centre, in the frame's own uv (x across, y up the frame = -z on the glass)
+  const LENS_SPAN = 0.36;
+  const aimLens = (slot) => {
+    const w = FILM.imgW * slot.scale, h = FILM.imgH * slot.scale;
+    const u = 0.5 + (L.group.position.x - slot.x) / w;
+    const v = 0.5 - (L.group.position.z - slot.z) / h;
+    const cw = LENS_SPAN / w, ch = LENS_SPAN / h;
+    lensMat.uniforms.uCrop.value.set(
+      THREE.MathUtils.clamp(u - cw / 2, 0, 1 - cw), THREE.MathUtils.clamp(v - ch / 2, 0, 1 - ch), cw, ch,
+    );
   };
 
   const glass = new THREE.Mesh(new THREE.PlaneGeometry(4.3, 2.9), new THREE.MeshBasicMaterial({ visible: false }));
@@ -138,10 +152,7 @@ export function lightboxScene(stage, app) {
     L.group.position.x = damp(L.group.position.x, target.x, 12, dt);
     L.group.position.z = damp(L.group.position.z, target.z, 12, dt);
     L.group.position.y = target.y + raise;
-    if (over) {
-      const dx = L.group.position.x - over.x, dz = L.group.position.z - over.z;
-      lensMat.uniforms.uCrop.value.set(0.27 + dx * 0.35, 0.3 - dz * 0.25, 0.46, 0.4);
-    }
+    if (over) aimLens(over);
   });
 
   const sticker = (slot) => {
@@ -277,7 +288,7 @@ function makePrint(frameIndex, k) {
 export function trayScene(stage, app) {
   const picks = selectedFrames(app);
   const n = picks.length;
-  hud.set({ scene: 'THE DARKROOM', count: `0 OF ${n} DRY`, back: true });
+  hud.set({ scene: 'THE DARKROOM', count: `0 OF ${n} HUNG`, back: true });
   hud.say(COPY.trayStart);
   stage.parallaxAmount = 0.06;
   // one fixed view, as in the original: the line across the top, the tray below
@@ -287,7 +298,15 @@ export function trayScene(stage, app) {
   gsap.from(stage.rig, { py: 5.0, pz: 4.0, duration: 1.4, ease: 'power3.out' });
 
   const set = buildDarkroom(stage);
-  const { tray: t, stack, timer: clock } = set;
+  const { tray: t, stack, timer: clock, tongs } = set;
+  const trayHome = t.group.position.clone();
+  const TRAY_HALF = 1.65; // half the tray's width: it rocks on one bottom edge, then the other
+  const tongRest = { pos: tongs.position.clone(), rot: tongs.rotation.clone() };
+  const TONG_TIP = new THREE.Vector3(-0.62, 0, 0);
+  const grip = { k: 0, p: null }; // how far the tongs have gone from their rest to the print's top edge
+  const levelQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
+  const tiltQ = new THREE.Quaternion();
+  const Z = new THREE.Vector3(0, 0, 1);
   const sheet = stack.userData.sheet;
   // on a narrow screen the paper sits in front of the tray so it stays in view
   if (stage.camera.aspect < 1.15) stack.position.set(-0.6, 0, -1.2);
@@ -311,16 +330,26 @@ export function trayScene(stage, app) {
   const ripples = [];
   const ripple = (x, z, amp = 1) => ripples.push({ x, z, t: 0, amp });
 
+  // a print counts as hung as soon as it's pegged, and as dry only once its shine has gone
+  const dryCount = () => hung.filter((e) => e.wet <= 0).length;
+  const countLine = () => {
+    const dry = dryCount();
+    return hung.length < n || dry < n ? `${hung.length} OF ${n} HUNG · ${dry} DRY` : `${n} OF ${n} DRY`;
+  };
   let doneOnce = false;
   const updateHint = () => {
     if (hung.length < n) {
       hud.say(COPY.next);
       return;
     }
+    if (dryCount() < n) {
+      hud.say('all on the line, drying · tap one to read the back');
+      return;
+    }
     hud.say(COPY.readBack);
     if (!doneOnce) {
       doneOnce = true;
-      gsap.delayedCall(1.2, () => hud.toast('all dry', { kicker: `${n} print${n > 1 ? 's' : ''} on the line`, line: 'tap one to read the back', sound: 'success' }));
+      hud.toast('all dry', { kicker: `${n} print${n > 1 ? 's' : ''} on the line`, line: 'tap one to read the back', sound: 'success' });
     }
     hud.sideNote(COPY.allDry, COPY.toWall, () => app.go('wall'));
   };
@@ -346,7 +375,9 @@ export function trayScene(stage, app) {
     const inTray = t.group.position.clone().setY(t.floorY + 0.02);
     gsap.timeline({
       onComplete: () => {
-        bath = { p, k, frameIndex, inTray, progress: 0 };
+        // from here it lies in the tray and rocks with it
+        t.group.attach(p.g);
+        bath = { p, k, frameIndex, inTray, progress: 0, local: p.g.position.clone(), rz: p.g.rotation.z };
         if (!k) rockGuide = stage.anchor(new THREE.Vector3(t.group.position.x, 0.4, t.group.position.z + 1.25), '⟵ drag to rock ⟶', { dy: 14 });
       },
     })
@@ -410,15 +441,20 @@ export function trayScene(stage, app) {
     });
   };
 
+  const hang = new THREE.Vector3();
+  let lastDry = 0;
   stage.onFrame((dt, time) => {
     for (const e of hung) {
       if (!e.moving && reading !== e) {
+        // it swings from the peg: turn about the top edge, not the middle of the sheet
         e.sway = damp(e.sway ?? 0, e.hover ? 0.07 : 0, 6, dt);
         e.g.rotation.z = e.home.rot.z + Math.sin(time * 1.3 + e.k) * 0.012 + Math.sin(time * 9) * e.sway * 0.4;
         e.g.rotation.x = Math.sin(time * 0.9 + e.k * 2) * 0.03;
+        hang.set(0, e.H / 2, 0).applyEuler(e.g.rotation);
+        e.g.position.copy(e.peg).sub(hang);
       }
       // drying: the shine goes, the drips slow down and stop
-      e.wet = Math.max(0, e.wet - dt / 18);
+      e.wet = Math.max(0, e.wet - dt / 11);
       e.sheen.opacity = e.wet;
       e.sheen.roughness = 0.12 + (1 - e.wet) * 0.5;
       e.nextDrip -= dt;
@@ -426,6 +462,11 @@ export function trayScene(stage, app) {
         e.nextDrip = 0.5 + (1 - e.wet) * 3 + Math.random();
         drip(e, 0);
       }
+    }
+    if (dryCount() !== lastDry) {
+      lastDry = dryCount();
+      hud.setCount(countLine());
+      if (!reading) updateHint();
     }
     for (let i = spots.length - 1; i >= 0; i--) {
       const s = spots[i];
@@ -442,7 +483,20 @@ export function trayScene(stage, app) {
     // tray tilt eases back to level; the liquid lags behind it like a spring
     slosh.to = damp(slosh.to, 0, 2.5, dt);
     slosh.tilt = damp(slosh.tilt, slosh.to, 9, dt);
-    t.group.rotation.z = slosh.tilt;
+    // the tray rocks on its bottom edge, so it never dips into the bench
+    const th = slosh.tilt, edge = -Math.sign(th) * TRAY_HALF;
+    t.group.rotation.z = th;
+    t.group.position.x = trayHome.x + edge * (1 - Math.cos(th));
+    t.group.position.y = trayHome.y - edge * Math.sin(th);
+    // and the bath stays level under gravity while the tray tilts around it
+    t.liquid.quaternion.copy(tiltQ.setFromAxisAngle(Z, -th)).multiply(levelQ);
+    // the tongs: at rest on the rim, or holding the print's top edge
+    if (grip.p) {
+      const at = grip.p.g.localToWorld(new THREE.Vector3(0, grip.p.H / 2 - 0.04, 0.03));
+      tongs.rotation.set(tongRest.rot.x, tongRest.rot.y, THREE.MathUtils.lerp(tongRest.rot.z, 0.6, grip.k));
+      const tip = TONG_TIP.clone().applyEuler(tongs.rotation);
+      tongs.position.lerpVectors(tongRest.pos, at.sub(tip), grip.k);
+    }
     slosh.wv += (-slosh.wave * 30 - slosh.wv * 2.2 + (slosh.to - slosh.tilt) * 40) * dt;
     slosh.wave += slosh.wv * dt;
     slosh.stir = damp(slosh.stir, 0, 1.6, dt);
@@ -473,9 +527,10 @@ export function trayScene(stage, app) {
     clock.set(b.progress * 60);
     b.p.mat.uniforms.uDev.value = b.progress;
     b.p.mat.uniforms.uTime.value = time;
-    b.p.g.position.x = b.inTray.x - slosh.wave * 0.05;
-    b.p.g.position.y = b.inTray.y + slosh.tilt * 0.4;
-    b.p.g.rotation.z = -0.04 + Math.sin(time * 1.7) * 0.012 + slosh.wave * 0.03;
+    // in the tray's own frame: it tilts with the tray and drifts a little on the wave
+    b.p.g.position.x = b.local.x - slosh.wave * 0.05;
+    b.p.g.position.y = b.local.y;
+    b.p.g.rotation.z = b.rz + Math.sin(time * 1.7) * 0.012 + slosh.wave * 0.03;
     hud.setCount(`PRINT ${b.k + 1} OF ${n} · ${Math.round(b.progress * 100)}%`);
     if (b.progress >= 1) {
       bath = null;
@@ -492,10 +547,18 @@ export function trayScene(stage, app) {
     },
   });
 
-  // lifted out with the tongs, held to drain, then pegged on the line
+  // a peg: two wooden halves on a spring; squeezing the top opens the jaws at the bottom
+  const peg = (c, open, duration = 0.18) => {
+    const [a, b] = c.children;
+    gsap.to(a.rotation, { x: open ? 0.3 : 0, duration, ease: 'power2.out' });
+    return gsap.to(b.rotation, { x: open ? -0.3 : 0, duration, ease: 'power2.out' });
+  };
+
+  // the tongs take the top edge, lift it out to drain, carry it to the line; the peg takes it from them
   const hangUp = ({ p, k, frameIndex }) => {
     const s = slot(k, p.H);
     rockGuide?.hide();
+    stage.world.attach(p.g);
     gsap.fromTo(p.mat.uniforms.uBright, { value: 1.35 }, { value: 1, duration: 1.2, ease: 'power2.out' });
     hud.say('there it is');
     sfx.chime();
@@ -504,7 +567,13 @@ export function trayScene(stage, app) {
     const f = ROLLS[STILL].frames[frameIndex];
     hud.toast(f.title, { kicker: `print ${k + 1} of ${n} · ${f.date}`, line: k === n - 1 ? 'the last one' : 'came up beautifully', hold: 1.8, sound: null });
     ripple(0, 0, 1.2);
+    const c = clip();
+    c.position.set(s.x, s.y + p.H / 2 + 0.02 + 0.6, s.z + 0.02);
+    c.visible = false;
+    stage.world.add(c);
+    grip.p = p;
     gsap.timeline()
+      .to(grip, { k: 1, duration: 0.5, ease: 'power2.inOut' })
       .to(p.g.position, { y: 1.2, z: p.g.position.z + 0.2, duration: 0.7, ease: 'power2.out' })
       .to(p.g.rotation, { x: -0.08, z: 0, duration: 0.7, ease: 'power2.out' }, '<')
       .add(() => {
@@ -514,13 +583,22 @@ export function trayScene(stage, app) {
       .to({}, { duration: 0.75 })
       .to(p.g.position, { x: s.x, y: s.y, z: s.z, duration: 1.1, ease: 'power3.inOut' })
       .to(p.g.rotation, { x: 0, y: 0, z: (Math.random() - 0.5) * 0.05, duration: 1.1, ease: 'power3.inOut' }, '<')
+      // the peg comes down open, closes on the top edge
       .add(() => {
-        const c = clip();
+        c.visible = true;
+        peg(c, true, 0.01);
+      }, '-=0.35')
+      .to(c.position, { y: s.y + p.H / 2 + 0.02, duration: 0.35, ease: 'power2.out' }, '-=0.35')
+      .add(() => {
+        peg(c, false, 0.12);
         sfx.tick(0.55, 0.2);
-        c.position.set(s.x, s.y + p.H / 2 + 0.02, s.z + 0.02);
-        stage.world.add(c);
-        gsap.from(c.position, { y: s.y + 1.0, duration: 0.3, ease: 'power2.out' });
-        const entry = { ...p, k, frameIndex, wet: 1, nextDrip: 0.4, home: { pos: s.clone(), rot: p.g.rotation.clone() } };
+      })
+      // and the tongs let go and go back to the rim
+      .to(grip, { k: 0, duration: 0.6, ease: 'power2.inOut', onComplete: () => (grip.p = null) }, '+=0.1')
+      .add(() => {
+        const rot = p.g.rotation.clone();
+        const top = new THREE.Vector3(0, p.H / 2, 0).applyEuler(rot);
+        const entry = { ...p, k, frameIndex, clip: c, wet: 1, nextDrip: 0.4, home: { pos: s.clone(), rot }, peg: s.clone().add(top) };
         hung.push(entry);
         stage.pick(p.g, {
           label: () => (reading === entry ? 'hang it back' : 'read the back'),
@@ -528,14 +606,15 @@ export function trayScene(stage, app) {
           leave: () => (entry.hover = false),
           click: () => toggleRead(entry),
         });
-        hud.setCount(`${hung.length} OF ${n} DRY`);
+        hud.setCount(countLine());
         busy = false;
         updateHint();
-      });
+      }, '-=0.6');
   };
 
+  // reading the back: the peg opens, the print comes to you; it goes back the same way
   const toggleRead = (e) => {
-    if (busy) return;
+    if (busy || e.moving) return;
     if (reading && reading !== e) return hangBack(reading);
     if (reading === e) return hangBack(e);
     reading = e;
@@ -549,16 +628,30 @@ export function trayScene(stage, app) {
     look.position.copy(spot);
     look.lookAt(cam.position);
     look.rotateY(Math.PI);
-    gsap.to(e.g.position, { x: spot.x, y: spot.y, z: spot.z, duration: 0.85, ease: 'power3.inOut' });
-    gsap.to(e.g.rotation, { x: look.rotation.x, y: look.rotation.y, z: look.rotation.z, duration: 1.1, ease: 'power3.inOut', onComplete: () => (e.moving = false) });
+    peg(e.clip, true);
+    gsap.timeline({ delay: 0.15, onComplete: () => (e.moving = false) })
+      .to(e.g.position, { y: e.g.position.y - 0.12, duration: 0.2, ease: 'power2.out' })
+      .add(() => peg(e.clip, false))
+      .to(e.g.position, { x: spot.x, y: spot.y, z: spot.z, duration: 0.85, ease: 'power3.inOut' })
+      .to(e.g.rotation, { x: look.rotation.x, y: look.rotation.y, z: look.rotation.z, duration: 1.0, ease: 'power3.inOut' }, '<');
     hud.say(COPY.hangBack);
   };
 
   const hangBack = (e) => {
+    if (e.moving) return;
     reading = null;
-    gsap.to(e.g.position, { x: e.home.pos.x, y: e.home.pos.y, z: e.home.pos.z, duration: 0.85, ease: 'power3.inOut' });
     e.moving = true;
-    gsap.to(e.g.rotation, { x: e.home.rot.x, y: e.home.rot.y, z: e.home.rot.z, duration: 0.85, ease: 'power3.inOut', onComplete: () => (e.moving = false) });
+    const below = e.home.pos.clone();
+    below.y -= 0.12;
+    gsap.timeline({ onComplete: () => (e.moving = false) })
+      .to(e.g.position, { x: below.x, y: below.y, z: below.z, duration: 0.85, ease: 'power3.inOut' })
+      .to(e.g.rotation, { x: e.home.rot.x, y: e.home.rot.y, z: e.home.rot.z, duration: 0.85, ease: 'power3.inOut' }, '<')
+      .add(() => peg(e.clip, true), '-=0.25')
+      .to(e.g.position, { y: e.home.pos.y, duration: 0.2, ease: 'power2.out' })
+      .add(() => {
+        peg(e.clip, false, 0.12);
+        sfx.tick(0.55, 0.15);
+      });
     updateHint();
   };
 

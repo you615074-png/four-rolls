@@ -476,6 +476,7 @@ export function buildDarkroom(stage) {
 
   return {
     tray: dev,
+    tongs: tg,
     stack: box,
     timer: tm,
     safe,

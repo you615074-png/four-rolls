@@ -6,6 +6,31 @@ import { walnutTexture } from './deskSet.js';
 const LOOK = { bg: '#0a0503', sky: '#ffdcbc', ground: '#24130a' };
 
 const gsap = window.gsap;
+
+/*
+ * Every tween, timeline and delayed call a scene starts is remembered, so that leaving the
+ * scene can stop them all: an old scene's callbacks never run on top of the next one.
+ * Tweens on DOM elements (the HUD, the iris, the letter) belong to the page and are left alone.
+ */
+const live = new Set();
+for (const k of ['to', 'from', 'fromTo', 'timeline', 'delayedCall']) {
+  const make = gsap[k].bind(gsap);
+  gsap[k] = (...args) => {
+    const anim = make(...args);
+    live.add(anim);
+    if (live.size > 400) for (const a of live) if (!a.isActive() && a.progress() === 1) live.delete(a);
+    return anim;
+  };
+}
+const pageOwned = (anim) => {
+  const targets = anim.targets ? anim.targets() : anim.getChildren(true, true, false).flatMap((c) => c.targets());
+  return targets.some((t) => t instanceof Element || t?.pageOwned);
+};
+export function killSceneAnimations() {
+  for (const a of live) if (!pageOwned(a)) a.kill();
+  live.clear();
+}
+
 const coarse = matchMedia('(pointer: coarse)').matches;
 
 /**
@@ -36,6 +61,8 @@ export class Stage {
     this.parallax = new THREE.Vector2();
     this.parallaxTarget = new THREE.Vector2();
     this.parallaxAmount = 0.12;
+    // the narrowest aspect a scene is framed for; below it the camera backs off to keep the width
+    this.frameAspect = 1.45;
 
     const table = new THREE.Mesh(
       new THREE.PlaneGeometry(80, 80),
@@ -93,6 +120,7 @@ export class Stage {
   /* ---------- scene content ---------- */
 
   clear() {
+    killSceneAnimations();
     this.pickables = [];
     this.hovered = null;
     this.frameHooks.clear();
@@ -119,6 +147,7 @@ export class Stage {
     this.hemi.color.set(LOOK.sky);
     this.hemi.groundColor.set(LOOK.ground);
     this.table.visible = true;
+    this.frameAspect = 1.45;
   }
 
   pick(obj, handlers) {
@@ -308,7 +337,7 @@ export class Stage {
     const r = this.rig;
     const px = this.parallax.x * this.parallaxAmount, py = this.parallax.y * this.parallaxAmount;
     // scenes are framed for a ~3:2 screen; on narrower screens back the camera off to keep the width
-    const k = Math.max(1, 1.45 / this.camera.aspect) ** 0.85;
+    const k = Math.max(1, this.frameAspect / this.camera.aspect) ** 0.85;
     this.scene.fog.near = 12 * k;
     this.scene.fog.far = 26 * k;
     this.camera.position.set(r.tx + (r.px - r.tx) * k + px, r.ty + (r.py - r.ty) * k + py * 0.5, r.tz + (r.pz - r.tz) * k);

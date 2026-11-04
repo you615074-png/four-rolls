@@ -112,7 +112,7 @@ export const hud = {
   },
 
   /* Scene changes close an iris on the point that was tapped, then open it from the middle. */
-  iris: { r: -12 },
+  iris: { r: -12, pageOwned: true },
   drawIris() {
     this.fade.style.setProperty('--ir', `${this.iris.r}vmax`);
   },
