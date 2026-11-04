@@ -1,24 +1,30 @@
-/* The shop's paint and lettering: a Hong Kong photo-finishing shop, late at night.
-   Signboard red and lamp yellow on black, mint tiles, fluorescent white, receipt paper. */
+/* The paint and lettering. The base is the original film's: near-black warm room, cream ink,
+   a red-pink hand that glows. What is new comes from the desk: kraft paper, washi tape, ink blue. */
 :root {
-  --red: #d22a20;
-  --red-deep: #8e1912;
-  --yellow: #f5c32c;
-  --yellow-soft: #ffe08a;
-  --black: #151413;
-  --ink: #f6efe2;
-  --ink-dim: rgba(246, 239, 226, 0.62);
-  --mint: #a9d6c6;
-  --mint-deep: #2f6656;
-  --fluoro: #eaf7f2;
-  --paper: #f4ecda;
-  --paper-ink: #24201c;
-  --neon: #ff4a5c;
+  --bg: #060302;
+  --ink: #f1e4d2;
+  --ink-dim: rgba(241, 228, 210, 0.62);
+  --hand: #e0574a;
+  --glow: #ffb3a1;
+  --rose: #f6b3a3;
+  --red: #c8402f;
+  --red-deep: #8e2b24;
 
-  --sign: "Noto Sans TC", "PingFang TC", "Heiti TC", sans-serif;
-  --cond: "Oswald", "Noto Sans TC", "PingFang SC", sans-serif;
+  --kraft: #c8ad84;
+  --kraft-deep: #a8895c;
+  --blue: #2d3e5c;
+  --blue-soft: #9fb0c6;
+  --lamp: #ffd29a;
+  --paper: #f4efe4;
+  --paper-ink: #2b241e;
+  --tape-rose: #d9a9a0;
+  --tape-blue: #9fb0c6;
+  --tape-mustard: #e2c27a;
+  --tape-sage: #b7c2a4;
+
   --mono: "IBM Plex Mono", "SF Mono", Menlo, monospace;
-  --hand: "Caveat", "LXGW WenKai TC", "Kaiti SC", cursive;
-  --kai: "LXGW WenKai TC", "Kaiti SC", "STKaiti", serif;
+  --serif: "Instrument Serif", "Songti SC", "STSong", Georgia, serif;
+  --script: "Caveat", "LXGW WenKai TC", "Kaiti SC", cursive;
   --type: "Special Elite", "LXGW WenKai TC", "Courier New", monospace;
+  --kai: "LXGW WenKai TC", "Kaiti SC", "STKaiti", serif;
 }

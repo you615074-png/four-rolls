@@ -133,7 +133,7 @@ function dragToPull(stage, strip, { label = 'drag ⟷', onFirst } = {}) {
 export function rollScene(stage, app, { index }) {
   const roll = ROLLS[index];
   app.state.visited.add(index);
-  hud.set({ scene: `菲林 · ROLL ${roll.no}`, count: roll.name.toUpperCase(), back: true });
+  hud.set({ scene: `ROLL ${roll.no} · OF FOUR`, count: roll.name.toUpperCase(), back: true });
   hud.say(roll.hint);
   stage.parallaxAmount = 0.1;
   if (roll.mode === 'contact') return stillDeck(stage, app, index);

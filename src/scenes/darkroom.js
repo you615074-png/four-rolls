@@ -41,7 +41,7 @@ export function lightboxScene(stage, app) {
   let picks = selectedFrames(app);
   const seen = new Set();
   const roll = ROLLS[STILL];
-  hud.set({ scene: '看片枱 · LIGHT BOX', count: `0 OF ${picks.length} SEEN`, back: true });
+  hud.set({ scene: 'THE LIGHT BOX', count: `0 OF ${picks.length} SEEN`, back: true });
   stage.parallaxAmount = 0.12;
   const home = { px: 0.2, py: 6.0, pz: 3.9, tx: 0.2, ty: 0, tz: -0.35, fov: 36 };
   stage.view({ pos: [home.px, home.py, home.pz], target: [home.tx, home.ty, home.tz], fov: home.fov });
@@ -277,7 +277,7 @@ function makePrint(frameIndex, k) {
 export function trayScene(stage, app) {
   const picks = selectedFrames(app);
   const n = picks.length;
-  hud.set({ scene: '暗房 · DARKROOM', count: `0 OF ${n} DRY`, back: true });
+  hud.set({ scene: 'THE DARKROOM', count: `0 OF ${n} DRY`, back: true });
   hud.say(COPY.trayStart);
   stage.parallaxAmount = 0.06;
   // one fixed view, as in the original: the line across the top, the tray below

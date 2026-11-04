@@ -12,7 +12,7 @@ const FIELDS = {
   develop: { help: '拉出胶卷时逐帧显影；点开已显影的一帧会显示日期和标题。', fields: ['title', 'date'] },
   light: { help: '举到灯前看照片，翻过来是背面的手写纸条。', fields: ['title', 'date', 'note'] },
   viewer: { help: '看片器里随机抽到、对上焦之后，会显示地点、两地距离和一句话。', fields: ['title', 'date', 'place', 'km', 'line'] },
-  contact: { help: '客人从这一卷挑要冲洗的相片；冲出来的相纸背面写着「背面的话」。', fields: ['title', 'date', 'note'] },
+  contact: { help: '打开包裹的人从这一卷挑要冲洗的相片；冲出来的相纸背面写着「背面的话」。', fields: ['title', 'date', 'note'] },
 };
 const LABELS = {
   title: ['标题', 'text', 40],

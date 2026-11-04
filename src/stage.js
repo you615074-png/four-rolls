@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { damp } from './util.js';
-import { laminateTexture } from './shopSet.js';
+import { walnutTexture } from './deskSet.js';
 
-// the shop at night: dark teal shadows, fluorescent tubes overhead
-const LOOK = { bg: '#0c1312', sky: '#e3f4ee', ground: '#1a2321' };
+// a room at night: warm near-black, lamplight from above
+const LOOK = { bg: '#0a0503', sky: '#ffdcbc', ground: '#24130a' };
 
 const gsap = window.gsap;
 const coarse = matchMedia('(pointer: coarse)').matches;
@@ -39,7 +39,7 @@ export class Stage {
 
     const table = new THREE.Mesh(
       new THREE.PlaneGeometry(80, 80),
-      new THREE.MeshStandardMaterial({ color: '#8f9693', map: laminateTexture(), roughness: 0.55, dithering: true }),
+      new THREE.MeshStandardMaterial({ color: '#a8968a', map: walnutTexture(), roughness: 0.5, dithering: true }),
     );
     table.rotation.x = -Math.PI / 2;
     table.receiveShadow = true;
@@ -112,7 +112,7 @@ export class Stage {
       }
     });
     this.world.clear();
-    // every scene starts from the shop's own light; scenes that change it don't have to undo it
+    // every scene starts from the room's own light; scenes that change it don't have to undo it
     this.scene.background.set(LOOK.bg);
     this.scene.fog.color.set(LOOK.bg);
     this.scene.environment = null;

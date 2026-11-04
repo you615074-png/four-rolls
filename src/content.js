@@ -86,12 +86,12 @@ export const COPY = {
   title: 'Four rolls,',
   titleItalic: 'one us',
   subtitle: 'every season we kept, wound up and waiting',
-  stepIn: 'the shop is still open, step inside',
-  letterWaits: 'there is a letter waiting at the counter',
+  parcel: 'a parcel came for you, untie the string',
+  letterWaits: 'the letter on top, read it first',
   pickOne: 'pick a roll',
   stillDecides: 'pick one, still us decides what gets printed',
   toDarkroom: 'to the darkroom',
-  back: 'back to the counter',
+  back: 'back to the desk',
   lightbox: 'slide the loupe over a frame, tap to look closer',
   swap: 'change negatives',
   pickerTitle: 'Choose the negatives to print',
@@ -106,9 +106,9 @@ export const COPY = {
   hangBack: 'tap again to hang it back',
   allDry: 'all dry,',
   toWall: 'to the wall',
-  wallHint: 'tap anywhere to collect them',
-  thanks: 'thank you for coming',
-  rewind: 'start again',
+  wallHint: 'tap anywhere to put them away',
+  thanks: "that's everything in the box",
+  rewind: 'wrap it up again',
 };
 
 // The back of each print. Indexed by print order in the tray.

@@ -1,7 +1,7 @@
 import { Stage } from './stage.js';
 import { hud } from './hud.js';
 import { rollScene } from './scenes/rolls.js';
-import { counterScene, pickupScene, shopScene } from './scenes/shop.js';
+import { deskScene, pickupScene } from './scenes/desk.js';
 import { lightboxScene, trayScene } from './scenes/darkroom.js';
 import { wallScene } from './scenes/wall.js';
 import { applySaved } from './store.js';
@@ -9,8 +9,9 @@ import { FONT } from './util.js';
 import { sfx } from './sfx.js';
 
 const SCENES = {
-  shop: shopScene,
-  counter: counterScene,
+  // the desk is both the opening (a closed parcel) and where you come back to
+  shop: deskScene,
+  counter: deskScene,
   roll: rollScene,
   lightbox: lightboxScene,
   tray: trayScene,
@@ -18,7 +19,7 @@ const SCENES = {
   pickup: pickupScene,
 };
 
-const freshState = () => ({ letterRead: false, visited: new Set(), circled: new Set(), boxed: new Set(), stats: { developed: 0, notes: 0, km: 0 } });
+const freshState = () => ({ parcelOpen: false, letterRead: false, visited: new Set(), circled: new Set(), boxed: new Set(), stats: { developed: 0, notes: 0, km: 0 } });
 
 async function boot() {
   // canvas textures draw text, so the web fonts have to be ready first
@@ -29,8 +30,6 @@ async function boot() {
       document.fonts.load(`40px ${FONT.serif}`),
       document.fonts.load(`500 20px ${FONT.mono}`),
       document.fonts.load(`20px ${FONT.type}`),
-      document.fonts.load(`900 40px ${FONT.sign}`),
-      document.fonts.load(`600 40px ${FONT.cond}`),
       document.fonts.load(`40px ${FONT.kai}`),
     ]),
     new Promise((r) => setTimeout(r, 2500)),
@@ -88,7 +87,7 @@ async function boot() {
 
   document.body.dataset.scene = 'shop';
   app.current = 'shop';
-  const first = shopScene(stage, app);
+  const first = deskScene(stage, app);
   if (typeof first === 'function') cleanup = first;
   hud.open(1.4);
   addEventListener('keydown', (e) => {

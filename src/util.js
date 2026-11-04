@@ -5,8 +5,6 @@ export const FONT = {
   serif: '"Instrument Serif", "Songti SC", "STSong", Georgia, serif',
   hand: '"Caveat", "LXGW WenKai TC", "Kaiti SC", cursive',
   type: '"Special Elite", "LXGW WenKai TC", "Courier New", monospace',
-  sign: '"Noto Sans TC", "PingFang TC", "Heiti TC", sans-serif',
-  cond: '"Oswald", "Noto Sans TC", "PingFang SC", sans-serif',
   kai: '"LXGW WenKai TC", "Kaiti SC", "STKaiti", serif',
 };
 
