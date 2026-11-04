@@ -1,2 +1,4 @@
 .DS_Store
+# your own photos and photos/local.js never go into git
 photos/
+devtools/

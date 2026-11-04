@@ -2,12 +2,11 @@
 // placeholder. Portrait photos are cropped to 3:4; mark landscape ones `wide`
 // and they get 4:3 frames (sideways on the film, upright on prints and the wall).
 
-// Test set: local copies of ten real photos (not in git), cycled through every roll.
-const WIDE = new Set([2697, 2700, 2705, 2749]);
-const TEST_PHOTOS = [2686, 2697, 2700, 2705, 2713, 2722, 2739, 2749, 2753, 2754].map((n) => ({
-  photo: `photos/test10/DSC_${n}.jpg`,
-  wide: WIDE.has(n),
-}));
+// Your own photos stay out of git: an optional photos/local.js can default-export a list of
+// { photo: 'photos/…jpg', wide: true|false }, cycled through every roll. Without it, every
+// frame gets a generated placeholder (and the owner's desk, edit.html, can still add photos).
+const LOCAL_PHOTOS = await import('../photos/local.js').then((m) => m.default ?? [], () => []);
+const localPhoto = (k) => (LOCAL_PHOTOS.length ? LOCAL_PHOTOS[k % LOCAL_PHOTOS.length] : { photo: null, wide: false });
 
 const TITLES = [
   'Window Seat', 'Sense of Order', 'Low Tide', 'Paper Lanterns', 'Under the Snowline',
@@ -48,7 +47,7 @@ function frames(rollIndex, startMonth) {
     return {
       date: `${String(month).padStart(2, '0')}.${String(day).padStart(2, '0')}`,
       title: TITLES[(i + rollIndex * 6) % TITLES.length],
-      ...TEST_PHOTOS[(i + rollIndex * 3) % TEST_PHOTOS.length],
+      ...localPhoto(i + rollIndex * 3),
       note: SLOW_NOTES[(i * 3 + rollIndex) % SLOW_NOTES.length],
       ...FAR_PLACES[(i * 5 + rollIndex) % FAR_PLACES.length],
     };
